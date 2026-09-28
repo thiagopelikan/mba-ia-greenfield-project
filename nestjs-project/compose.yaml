@@ -12,6 +12,10 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_started
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
 
   db:
     image: postgres:17
@@ -33,4 +37,46 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  # Object storage (S3-compatible). Chainguard build of MinIO — the upstream
+  # minio/minio image is no longer published on Docker Hub.
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY:-streamtube}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:-streamtube-secret}
+    volumes:
+      - minio-data:/data
 
+  # One-shot bucket bootstrap (image has no shell: retries via restart policy
+  # until MinIO accepts connections).
+  minio-init:
+    image: cgr.dev/chainguard/minio-client:latest
+    command: ["mb", "--ignore-existing", "local/${S3_BUCKET:-streamtube-videos}"]
+    environment:
+      - MC_HOST_local=http://${S3_ACCESS_KEY:-streamtube}:${S3_SECRET_KEY:-streamtube-secret}@minio:9000
+    depends_on:
+      minio:
+        condition: service_started
+    restart: on-failure
+
+  # Queue broker for BullMQ (jobs must never be evicted).
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  minio-data:
+  redis-data:

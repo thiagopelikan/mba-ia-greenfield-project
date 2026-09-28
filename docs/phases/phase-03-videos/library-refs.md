@@ -9,7 +9,7 @@ libs:
     context7_id: "/nestjs/docs.nestjs.com"
     fetched_at: "2026-09-28T17:40:00-03:00"
   "ioredis":
-    version: "^6.0.0"
+    version: "^5.11.1"
     context7_id: "/taskforcesh/bullmq"
     fetched_at: "2026-09-28T17:40:00-03:00"
   "@aws-sdk/client-s3":
@@ -54,7 +54,7 @@ _TD: phase-03-videos/TD-01, TD-05_
 
 _TD: phase-03-videos/TD-01_
 
-- Required peer of BullMQ's Redis backend (`>=5`); v6 requires Node `>=20`. Used implicitly through `connection` options — no direct usage expected in application code.
+- Required peer of BullMQ's Redis backend (`>=5`). Pinned to **5.x**: `typeorm@0.3.28` declares an optional peer `ioredis@^5.0.4`, so `ioredis@6` fails npm peer resolution (fixed during SI-03.1). Used implicitly through `connection` options — no direct usage expected in application code.
 
 ### @aws-sdk/client-s3
 

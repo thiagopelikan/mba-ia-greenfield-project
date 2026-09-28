@@ -37,3 +37,37 @@ describe('envValidationSchema — SWAGGER_ENABLED', () => {
     expect(value.SWAGGER_ENABLED).toBe('false');
   });
 });
+
+describe('envValidationSchema — storage, queue and video keys', () => {
+  it('should apply defaults when the phase 03 keys are not set', () => {
+    const { value, error } = validate({});
+
+    expect(error).toBeUndefined();
+    expect(value).toMatchObject({
+      S3_ENDPOINT: 'http://minio:9000',
+      S3_PUBLIC_ENDPOINT: 'http://localhost:9000',
+      S3_BUCKET: 'streamtube-videos',
+      REDIS_HOST: 'redis',
+      REDIS_PORT: 6379,
+      VIDEO_MAX_UPLOAD_BYTES: 10737418240,
+      VIDEO_UPLOAD_PART_SIZE_BYTES: 67108864,
+      VIDEO_UPLOAD_URL_TTL_SECONDS: 3600,
+      VIDEO_PLAYBACK_URL_TTL_SECONDS: 3600,
+      VIDEO_UPLOAD_WINDOW_HOURS: 24,
+    });
+  });
+
+  it('should reject a part size below the 5 MiB S3 multipart minimum', () => {
+    const { error } = validate({ VIDEO_UPLOAD_PART_SIZE_BYTES: '1024' });
+
+    expect(error).toBeDefined();
+    expect(error!.message).toContain('VIDEO_UPLOAD_PART_SIZE_BYTES');
+  });
+
+  it('should reject a non-URI storage endpoint', () => {
+    const { error } = validate({ S3_ENDPOINT: 'not a url' });
+
+    expect(error).toBeDefined();
+    expect(error!.message).toContain('S3_ENDPOINT');
+  });
+});
