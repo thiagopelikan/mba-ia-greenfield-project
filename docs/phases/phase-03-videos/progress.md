@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
-**Status:** in_progress
-**SIs:** 12/13 completed
+**Status:** completed
+**SIs:** 13/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -94,6 +94,9 @@
   - Sample generator adds temporal noise when a bitrate is requested: x264 compresses the plain lavfi test pattern to ~0.6 MB regardless of -b:v.
 
 ### SI-03.13 — Documentação de IA e de testes atualizada
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** no tests (documentation) — every path cited in both CLAUDE.md files verified to exist
+- **Observations:**
+  - Testing guide: Object Storage → Real (Docker MinIO) and Message Queue → Real (Docker Redis + BullMQ), plus the two table rows that still mentioned a local storage adapter (validation.md IC-1).
+  - Root CLAUDE.md: Message Queue = BullMQ on Redis, worker/storage roles; also corrected the stale 'next-frontend not yet initialized' line. software-arch.mermaid: queue no longer TBD; storage relations reflect presigned direct upload.
+  - nestjs-controllers rule documents optional auth on @Public() routes introduced in SI-03.6.
