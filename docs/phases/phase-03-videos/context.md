@@ -3,7 +3,7 @@ kind: phase
 name: phase-03-videos
 sources_mtime:
   docs/project-plan.md: "2026-09-28T15:46:09-03:00"
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T17:07:32-03:00"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T17:20:35-03:00"
   docs/decisions/technical-decisions-openapi-docs-nestjs.md: "2026-09-28T15:46:56-03:00"
   docs/decisions/technical-decisions-next-frontend-openapi-typing.md: "2026-09-28T15:46:56-03:00"
   docs/decisions/technical-decisions-next-frontend-config-base.md: "2026-09-28T15:46:56-03:00"
@@ -11,6 +11,7 @@ sources_mtime:
   docs/phases/phase-01-configuracao-base/context.md: "2026-09-28T15:46:56-03:00"
   docs/phases/phase-02-auth/context.md: "2026-09-28T15:46:56-03:00"
   docs/phases/phase-02-auth-frontend/context.md: "2026-09-28T15:46:56-03:00"
+  docs/phases/phase-03-videos/library-refs.md: "2026-09-28T17:21:21-03:00"
   .claude/skills/testing-guide-nestjs-project/SKILL.md: "2026-09-28T15:46:09-03:00"
 ---
 
@@ -51,18 +52,18 @@ sources_mtime:
 
 | Ref | Source | Scope | Topic | Status | Decision | Libraries |
 |-----|--------|-------|-------|--------|----------|-----------|
-| phase-03-videos/TD-01 | phase | Backend | Background Job Queue Technology | pending | — | — |
-| phase-03-videos/TD-02 | phase | Cross-layer | Upload Strategy for Files up to 10GB | pending | — | — |
-| phase-03-videos/TD-03 | phase | Backend | S3 Client Library | pending | — | — |
-| phase-03-videos/TD-04 | phase | Cross-layer | Bucket and Object Key Organization and Access | pending | — | — |
-| phase-03-videos/TD-05 | phase | Backend | Video Worker Runtime and Deployment | pending | — | — |
-| phase-03-videos/TD-06 | phase | Backend | FFmpeg Invocation and Processing Strategy | pending | — | — |
-| phase-03-videos/TD-07 | phase | Cross-layer | Video Status Lifecycle and Failure Handling | pending | — | — |
-| phase-03-videos/TD-08 | phase | Cross-layer | Unique Video URL Identifier | pending | — | — |
-| phase-03-videos/TD-09 | phase | Cross-layer | Streaming and Download Delivery | pending | — | — |
-| phase-03-videos/TD-10 | phase | Cross-layer | Playback Access Policy in Phase 03 | pending | — | — |
-| phase-03-videos/TD-11 | phase | Backend | Job Enqueue Consistency and Idempotency | pending | — | — |
-| phase-03-videos/TD-12 | phase | Backend | Cleanup of Abandoned Uploads and Stale Drafts | pending | — | — |
+| phase-03-videos/TD-01 | phase | Backend | Background Job Queue Technology | decided | A (BullMQ on Redis) | bullmq, @nestjs/bullmq, ioredis |
+| phase-03-videos/TD-02 | phase | Cross-layer | Upload Strategy for Files up to 10GB | decided | C (Direct-to-storage S3 multipart with presigned part URLs) | — |
+| phase-03-videos/TD-03 | phase | Backend | S3 Client Library | decided | A (AWS SDK v3 — `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner`) | @aws-sdk/client-s3, @aws-sdk/s3-request-presigner |
+| phase-03-videos/TD-04 | phase | Cross-layer | Bucket and Object Key Organization and Access | decided | A (Single private bucket, per-video key prefix, presigned access) | — |
+| phase-03-videos/TD-05 | phase | Backend | Video Worker Runtime and Deployment | decided | A (Same codebase, separate entrypoint and Compose service) | — |
+| phase-03-videos/TD-06 | phase | Backend | FFmpeg Invocation and Processing Strategy | decided | A (Spawn ffprobe/ffmpeg via execFile reading a presigned URL) | ffmpeg (Debian package in the Docker image — not an npm dependency) |
+| phase-03-videos/TD-07 | phase | Cross-layer | Video Status Lifecycle and Failure Handling | decided | A (Single enum `draft → processing → ready | failed` with bounded retries) | — |
+| phase-03-videos/TD-08 | phase | Cross-layer | Unique Video URL Identifier | decided | B (Random 11-char base64url slug with unique index) | — |
+| phase-03-videos/TD-09 | phase | Cross-layer | Streaming and Download Delivery | decided | A (302 redirect to short-lived presigned GET URLs) | — |
+| phase-03-videos/TD-10 | phase | Cross-layer | Playback Access Policy in Phase 03 | decided | A (Public-by-link for `ready` videos; owner-only otherwise) | — |
+| phase-03-videos/TD-11 | phase | Backend | Job Enqueue Consistency and Idempotency | decided | A (Deterministic job id + idempotent worker) | — |
+| phase-03-videos/TD-12 | phase | Backend | Cleanup of Abandoned Uploads and Stale Drafts | decided | B (Scheduled sweeper queue job) | — |
 
 _Source files:_
 
@@ -84,7 +85,81 @@ _Source files:_
 
 ## Decisions Detail
 
-_No decided TDs yet — every current-scope TD is pending (see `## Decisions Index`)._
+### phase-03-videos/TD-01
+
+**Recommendation:** it gives job semantics the phase needs (retries with backoff, deterministic job ids, failed-job retention) with the official NestJS integration and zero custom plumbing, and it materializes the architecture's dedicated "Message Queue" container; the Postgres backend (B) is attractive for avoiding a container but is two months old and less documented through `@nestjs/bullmq`, and RabbitMQ (C) would require hand-building retry/backoff via dead-letter exchanges for a single job type.
+
+**Libraries:** bullmq, @nestjs/bullmq, ioredis
+
+### phase-03-videos/TD-02
+
+**Recommendation:** it is the only option where no video byte crosses the API, which is the literal requirement ("sem impacto na performance"), it gives resume after connection loss via `ListParts` (project-plan §4), and it stays within AWS S3's 5 GiB single-PUT limit when MinIO is swapped for S3. Suggested policy: max size 10 GiB (10,737,418,240 bytes) validated at initiate time, fixed part size of 64 MiB (≤ 160 parts for 10 GiB, far from the 10,000-part limit), presigned part URLs valid for a bounded window (e.g., 1 hour) and re-issuable on resume.
+
+**Note:** User accepted the recommendation, noting that this is an MBA demo project and 10GB uploads will not occur in practice; the strategy is still implemented and tested at the contract level (size limit, part plan) with small real files.
+
+**Libraries:** —
+
+### phase-03-videos/TD-03
+
+**Recommendation:** it presigns every multipart command needed by TD-02's direct upload and is the reference behavior for the production S3 target, keeping MinIO → S3 a configuration swap; the MinIO client lacks presigned multipart part URLs.
+
+**Note:** User delegated this choice to the recommendation ("deixo você sugerir"), reminding that the project is an MBA demo with no real production use.
+
+**Libraries:** @aws-sdk/client-s3, @aws-sdk/s3-request-presigner
+
+### phase-03-videos/TD-04
+
+**Recommendation:** it keeps a single access model where the API decides every read, which Phase 03 needs for drafts and Phase 04/05 need for visibility, with collision-free keys derived from the video UUID; stable CDN URLs for thumbnails (Option B) can be introduced later without migrating originals.
+
+**Libraries:** —
+
+### phase-03-videos/TD-05
+
+**Recommendation:** it honors the architecture's separate worker container and keeps FFmpeg off the API event loop while reusing the entity, config and storage modules instead of duplicating them; a standalone subproject (C) adds duplication with no requirement demanding language or release independence.
+
+**Libraries:** —
+
+### phase-03-videos/TD-06
+
+**Recommendation:** it avoids copying up to 10GB per job while keeping FFmpeg as the only dependency, and `fluent-ffmpeg` is unsupported. Suggested policy: persist `duration_seconds` plus a `metadata` JSON (container format, size, bitrate, width, height, frame rate, video/audio codecs); take the thumbnail at 10% of the duration clamped to [0 s, duration − 0.1 s], scaled to 1280 px wide JPEG; bounded execution timeout per command.
+
+**Libraries:** ffmpeg (Debian package in the Docker image — not an npm dependency)
+
+### phase-03-videos/TD-07
+
+**Recommendation:** it reflects the required cycle with the fewest states, lets BullMQ retries absorb transient errors before marking `failed`, and leaves publication/visibility to dedicated Phase 04 columns.
+
+**Libraries:** —
+
+### phase-03-videos/TD-08
+
+**Recommendation:** short and unguessable URLs without a new dependency, with uniqueness enforced by the database and a retry path consistent with the existing nickname generation pattern; enumerable Sqids (C) would undermine future unlisted videos.
+
+**Libraries:** —
+
+### phase-03-videos/TD-09
+
+**Recommendation:** progressive range streaming satisfies "sem necessidade de download completo" while keeping the API out of the byte path as the architecture intends, and one mechanism covers both streaming and download; HLS (C) can be added later as an additional rendition without changing the API contract.
+
+**Libraries:** —
+
+### phase-03-videos/TD-10
+
+**Recommendation:** it realizes the anonymous-viewing principle and a shareable unique URL now, never exposes unfinished videos, and lets Phase 04 add visibility as an extra filter on the same endpoints.
+
+**Libraries:** —
+
+### phase-03-videos/TD-11
+
+**Recommendation:** it covers client retries and duplicate enqueues with no extra infrastructure; the only uncovered window (process crash between two local calls) is narrow and can be addressed later with a sweeper, whereas an outbox adds a table and a relay for one job type.
+
+**Libraries:** —
+
+### phase-03-videos/TD-12
+
+**Recommendation:** it keeps the `draft` status truthful and reclaims orphaned parts through the queue and worker that this phase already builds, independent of per-environment bucket configuration; a 24h upload window is generous for a 10GB file on any realistic connection, and storage-level lifecycle rules can still be added in production as a second safety net.
+
+**Libraries:** —
 
 ## Inherited Decisions Detail
 

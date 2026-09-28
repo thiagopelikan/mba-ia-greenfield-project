@@ -1,7 +1,7 @@
 ---
 scope_type: phase
 related_phases: [3]
-status: pending
+status: decided
 date: 2026-09-28
 scope_description: "Backend foundation for video upload and processing: object storage usage, background job queue, direct-to-storage upload of files up to 10GB, draft pre-registration, FFmpeg worker (metadata + thumbnail), unique video URL, streaming and download delivery, and the video status lifecycle."
 ---
@@ -48,7 +48,8 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (BullMQ on Redis) — it gives job semantics the phase needs (retries with backoff, deterministic job ids, failed-job retention) with the official NestJS integration and zero custom plumbing, and it materializes the architecture's dedicated "Message Queue" container; the Postgres backend (B) is attractive for avoiding a container but is two months old and less documented through `@nestjs/bullmq`, and RabbitMQ (C) would require hand-building retry/backoff via dead-letter exchanges for a single job type.
 
-**Decision:** _[pending]_
+**Decision:** A (BullMQ on Redis)
+**Libraries:** bullmq, @nestjs/bullmq, ioredis
 
 ---
 
@@ -79,7 +80,9 @@ _Subprojects in scope:_
 
 **Recommendation:** Option C (direct-to-storage multipart with presigned part URLs) — it is the only option where no video byte crosses the API, which is the literal requirement ("sem impacto na performance"), it gives resume after connection loss via `ListParts` (project-plan §4), and it stays within AWS S3's 5 GiB single-PUT limit when MinIO is swapped for S3. Suggested policy: max size 10 GiB (10,737,418,240 bytes) validated at initiate time, fixed part size of 64 MiB (≤ 160 parts for 10 GiB, far from the 10,000-part limit), presigned part URLs valid for a bounded window (e.g., 1 hour) and re-issuable on resume.
 
-**Decision:** _[pending]_
+**Decision:** C (Direct-to-storage S3 multipart with presigned part URLs)
+
+**Note:** User accepted the recommendation, noting that this is an MBA demo project and 10GB uploads will not occur in practice; the strategy is still implemented and tested at the contract level (size limit, part plan) with small real files.
 
 ---
 
@@ -105,7 +108,10 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (AWS SDK v3) — it presigns every multipart command needed by TD-02's direct upload and is the reference behavior for the production S3 target, keeping MinIO → S3 a configuration swap; the MinIO client lacks presigned multipart part URLs.
 
-**Decision:** _[pending]_
+**Decision:** A (AWS SDK v3 — `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner`)
+**Libraries:** @aws-sdk/client-s3, @aws-sdk/s3-request-presigner
+
+**Note:** User delegated this choice to the recommendation ("deixo você sugerir"), reminding that the project is an MBA demo with no real production use.
 
 ---
 
@@ -131,7 +137,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (single private bucket, per-video prefix, presigned access) — it keeps a single access model where the API decides every read, which Phase 03 needs for drafts and Phase 04/05 need for visibility, with collision-free keys derived from the video UUID; stable CDN URLs for thumbnails (Option B) can be introduced later without migrating originals.
 
-**Decision:** _[pending]_
+**Decision:** A (Single private bucket, per-video key prefix, presigned access)
 
 ---
 
@@ -162,7 +168,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (same codebase, separate entrypoint and Compose service) — it honors the architecture's separate worker container and keeps FFmpeg off the API event loop while reusing the entity, config and storage modules instead of duplicating them; a standalone subproject (C) adds duplication with no requirement demanding language or release independence.
 
-**Decision:** _[pending]_
+**Decision:** A (Same codebase, separate entrypoint and Compose service)
 
 ---
 
@@ -193,7 +199,8 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (spawn binaries over a presigned URL) — it avoids copying up to 10GB per job while keeping FFmpeg as the only dependency, and `fluent-ffmpeg` is unsupported. Suggested policy: persist `duration_seconds` plus a `metadata` JSON (container format, size, bitrate, width, height, frame rate, video/audio codecs); take the thumbnail at 10% of the duration clamped to [0 s, duration − 0.1 s], scaled to 1280 px wide JPEG; bounded execution timeout per command.
 
-**Decision:** _[pending]_
+**Decision:** A (Spawn ffprobe/ffmpeg via execFile reading a presigned URL)
+**Libraries:** ffmpeg (Debian package in the Docker image — not an npm dependency)
 
 ---
 
@@ -224,7 +231,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (single enum `draft → processing → ready | failed` with bounded retries) — it reflects the required cycle with the fewest states, lets BullMQ retries absorb transient errors before marking `failed`, and leaves publication/visibility to dedicated Phase 04 columns.
 
-**Decision:** _[pending]_
+**Decision:** A (Single enum `draft → processing → ready | failed` with bounded retries)
 
 ---
 
@@ -255,7 +262,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option B (random 11-char base64url slug with unique index) — short and unguessable URLs without a new dependency, with uniqueness enforced by the database and a retry path consistent with the existing nickname generation pattern; enumerable Sqids (C) would undermine future unlisted videos.
 
-**Decision:** _[pending]_
+**Decision:** B (Random 11-char base64url slug with unique index)
 
 ---
 
@@ -286,7 +293,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (302 to presigned GET, storage serves ranges) — progressive range streaming satisfies "sem necessidade de download completo" while keeping the API out of the byte path as the architecture intends, and one mechanism covers both streaming and download; HLS (C) can be added later as an additional rendition without changing the API contract.
 
-**Decision:** _[pending]_
+**Decision:** A (302 redirect to short-lived presigned GET URLs)
 
 ---
 
@@ -312,7 +319,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (public-by-link for `ready`, owner-only otherwise) — it realizes the anonymous-viewing principle and a shareable unique URL now, never exposes unfinished videos, and lets Phase 04 add visibility as an extra filter on the same endpoints.
 
-**Decision:** _[pending]_
+**Decision:** A (Public-by-link for `ready` videos; owner-only otherwise)
 
 ---
 
@@ -338,7 +345,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option A (deterministic job id + idempotent worker) — it covers client retries and duplicate enqueues with no extra infrastructure; the only uncovered window (process crash between two local calls) is narrow and can be addressed later with a sweeper, whereas an outbox adds a table and a relay for one job type.
 
-**Decision:** _[pending]_
+**Decision:** A (Deterministic job id + idempotent worker)
 
 ---
 
@@ -369,7 +376,7 @@ _Subprojects in scope:_
 
 **Recommendation:** Option B (scheduled sweeper job) — it keeps the `draft` status truthful and reclaims orphaned parts through the queue and worker that this phase already builds, independent of per-environment bucket configuration; a 24h upload window is generous for a 10GB file on any realistic connection, and storage-level lifecycle rules can still be added in production as a second safety net.
 
-**Decision:** _[pending]_
+**Decision:** B (Scheduled sweeper queue job)
 
 ---
 
@@ -377,15 +384,15 @@ _Subprojects in scope:_
 
 | ID | Scope | Decision | Recommendation | Choice |
 |----|-------|----------|---------------|--------|
-| TD-01 | Backend | Background Job Queue Technology | BullMQ on Redis | _[pending]_ |
-| TD-02 | Cross-layer | Upload Strategy for Files up to 10GB | Direct-to-storage S3 multipart with presigned part URLs | _[pending]_ |
-| TD-03 | Backend | S3 Client Library | AWS SDK v3 (`@aws-sdk/client-s3` + presigner) | _[pending]_ |
-| TD-04 | Cross-layer | Bucket and Object Key Organization and Access | Single private bucket, per-video prefix, presigned access | _[pending]_ |
-| TD-05 | Backend | Video Worker Runtime and Deployment | Same codebase, separate entrypoint and Compose service | _[pending]_ |
-| TD-06 | Backend | FFmpeg Invocation and Processing Strategy | Spawn ffprobe/ffmpeg over a presigned URL | _[pending]_ |
-| TD-07 | Cross-layer | Video Status Lifecycle and Failure Handling | Single enum `draft → processing → ready \| failed` + bounded retries | _[pending]_ |
-| TD-08 | Cross-layer | Unique Video URL Identifier | Random 11-char base64url slug + unique index | _[pending]_ |
-| TD-09 | Cross-layer | Streaming and Download Delivery | 302 to presigned GET (storage serves ranges) | _[pending]_ |
-| TD-10 | Cross-layer | Playback Access Policy in Phase 03 | Public-by-link for `ready`, owner-only otherwise | _[pending]_ |
-| TD-11 | Backend | Job Enqueue Consistency and Idempotency | Deterministic job id + idempotent worker | _[pending]_ |
-| TD-12 | Backend | Cleanup of Abandoned Uploads and Stale Drafts | Scheduled sweeper queue job | _[pending]_ |
+| TD-01 | Backend | Background Job Queue Technology | BullMQ on Redis | A |
+| TD-02 | Cross-layer | Upload Strategy for Files up to 10GB | Direct-to-storage S3 multipart with presigned part URLs | C |
+| TD-03 | Backend | S3 Client Library | AWS SDK v3 (`@aws-sdk/client-s3` + presigner) | A |
+| TD-04 | Cross-layer | Bucket and Object Key Organization and Access | Single private bucket, per-video prefix, presigned access | A |
+| TD-05 | Backend | Video Worker Runtime and Deployment | Same codebase, separate entrypoint and Compose service | A |
+| TD-06 | Backend | FFmpeg Invocation and Processing Strategy | Spawn ffprobe/ffmpeg over a presigned URL | A |
+| TD-07 | Cross-layer | Video Status Lifecycle and Failure Handling | Single enum `draft → processing → ready \| failed` + bounded retries | A |
+| TD-08 | Cross-layer | Unique Video URL Identifier | Random 11-char base64url slug + unique index | B |
+| TD-09 | Cross-layer | Streaming and Download Delivery | 302 to presigned GET (storage serves ranges) | A |
+| TD-10 | Cross-layer | Playback Access Policy in Phase 03 | Public-by-link for `ready`, owner-only otherwise | A |
+| TD-11 | Backend | Job Enqueue Consistency and Idempotency | Deterministic job id + idempotent worker | A |
+| TD-12 | Backend | Cleanup of Abandoned Uploads and Stale Drafts | Scheduled sweeper queue job | B |
