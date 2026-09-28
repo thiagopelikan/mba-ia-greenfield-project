@@ -342,6 +342,37 @@ _Subprojects in scope:_
 
 ---
 
+## TD-12: Cleanup of Abandoned Uploads and Stale Drafts
+
+**Scope:** Backend
+
+**Capability:** Serviço de armazenamento de arquivos (vídeos e thumbnails)
+
+**Context:** Raised by `plan-validate` (MD-1). With direct-to-storage multipart uploads (TD-02), a client that starts an upload and never completes it leaves (1) incomplete multipart parts in the bucket — invisible to object listings but billed as storage — and (2) a `draft` row whose upload can no longer complete once its parts are gone. `docs/project-plan.md` §4 asks to plan storage growth and cost from the start. MinIO aborts stale multipart uploads on its own (server settings `api stale_uploads_expiry`, default 24h), while AWS S3 needs an `AbortIncompleteMultipartUpload` lifecycle rule. Depends on TD-01, TD-02 and TD-07.
+
+**Options:**
+
+### Option A: Storage-level lifecycle only
+- Rely on MinIO's stale-upload expiry locally and on an S3 `AbortIncompleteMultipartUpload` lifecycle rule in production; the application does nothing.
+- **Pros:** Zero application code; storage reclaims orphaned parts automatically.
+- **Cons:** `draft` rows stay forever in a state that can never complete (their parts are gone), so the database contradicts the storage; behavior depends on per-environment bucket configuration outside the codebase.
+
+### Option B: Application sweeper as a scheduled queue job
+- A repeatable job (BullMQ job scheduler, consumed by the video worker) runs periodically and, for `draft` videos older than an upload window (e.g., 24h), aborts their multipart upload (`AbortMultipartUpload`) and marks them `failed` with reason `UPLOAD_EXPIRED`.
+- **Pros:** Database and storage stay consistent; the rule lives in code and is tested with the real queue and storage; works identically on MinIO and S3; reuses the queue and worker already introduced by TD-01/TD-05.
+- **Cons:** One more job type and schedule to implement and test; the upload window becomes a hard limit (a 10GB upload must finish within it).
+
+### Option C: Defer cleanup to a later phase
+- Keep abandoned drafts and parts; address cleanup when the channel dashboard (Phase 04) exists.
+- **Pros:** No work in this phase.
+- **Cons:** Storage grows unbounded from day one, against project-plan §4; data cleanup later must deal with an accumulated backlog.
+
+**Recommendation:** Option B (scheduled sweeper job) — it keeps the `draft` status truthful and reclaims orphaned parts through the queue and worker that this phase already builds, independent of per-environment bucket configuration; a 24h upload window is generous for a 10GB file on any realistic connection, and storage-level lifecycle rules can still be added in production as a second safety net.
+
+**Decision:** _[pending]_
+
+---
+
 ## Decisions Summary
 
 | ID | Scope | Decision | Recommendation | Choice |
@@ -357,3 +388,4 @@ _Subprojects in scope:_
 | TD-09 | Cross-layer | Streaming and Download Delivery | 302 to presigned GET (storage serves ranges) | _[pending]_ |
 | TD-10 | Cross-layer | Playback Access Policy in Phase 03 | Public-by-link for `ready`, owner-only otherwise | _[pending]_ |
 | TD-11 | Backend | Job Enqueue Consistency and Idempotency | Deterministic job id + idempotent worker | _[pending]_ |
+| TD-12 | Backend | Cleanup of Abandoned Uploads and Stale Drafts | Scheduled sweeper queue job | _[pending]_ |

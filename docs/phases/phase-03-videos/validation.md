@@ -4,8 +4,8 @@ name: phase-03-videos
 status: dirty
 issue_count: 16
 sources_mtime:
-  docs/phases/phase-03-videos/context.md: "2026-09-28T17:06:18-03:00"
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T16:46:27-03:00"
+  docs/phases/phase-03-videos/context.md: "2026-09-28T17:07:32-03:00"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T17:07:32-03:00"
 issues:
   - id: IC-1
     status: open
@@ -20,8 +20,9 @@ issues:
     status: open
     summary: "Download bullet does not say which file is served (original upload)"
   - id: MD-1
-    status: open
+    status: resolved
     summary: "No TD for storage growth: abandoned multipart uploads and stale drafts"
+    resolved_by: phase-03-videos/TD-12
   - id: OQ-1
     status: open
     summary: "TD-01 pending — Background Job Queue Technology"
@@ -55,6 +56,9 @@ issues:
   - id: OQ-11
     status: open
     summary: "TD-11 pending — Job Enqueue Consistency and Idempotency"
+  - id: OQ-12
+    status: open
+    summary: "TD-12 pending — Cleanup of Abandoned Uploads and Stale Drafts"
 advisories: []
 ---
 
@@ -74,7 +78,7 @@ advisories: []
 
 ### Missing Decisions
 
-- **MD-1** — Capability "Serviço de armazenamento de arquivos (vídeos e thumbnails)" combined with project-plan §4 ("vídeos grandes consomem muito espaço … planejar o crescimento e os custos de armazenamento desde o início"): with direct-to-storage multipart uploads (TD-02), abandoned uploads leave invisible incomplete multipart parts in the bucket and `draft` rows that never complete. No TD decides how these are reclaimed (storage lifecycle rule, application sweeper job, or none). Explicit choice: run /research to add a TD covering cleanup of abandoned uploads/drafts.
+_None._
 
 ### Dependency Gaps
 
@@ -97,6 +101,7 @@ _None._
 - **OQ-9** — TD-09 pending — Streaming and Download Delivery. Resolution: fill the **Decision:** field of TD-09, then re-run /plan-validate phase-03-videos.
 - **OQ-10** — TD-10 pending — Playback Access Policy in Phase 03. Resolution: fill the **Decision:** field of TD-10, then re-run /plan-validate phase-03-videos.
 - **OQ-11** — TD-11 pending — Job Enqueue Consistency and Idempotency. Resolution: fill the **Decision:** field of TD-11, then re-run /plan-validate phase-03-videos.
+- **OQ-12** — TD-12 pending — Cleanup of Abandoned Uploads and Stale Drafts. Resolution: fill the **Decision:** field of TD-12, then re-run /plan-validate phase-03-videos.
 
 ### UI Coverage Gaps
 
@@ -104,4 +109,4 @@ _None._
 
 ## Resolved Issues
 
-_No issues resolved yet._
+- **MD-1** _(resolved_by phase-03-videos/TD-12)_ — No TD for storage growth: abandoned multipart uploads and stale drafts. Added TD-12 via /research; context.md regenerated.

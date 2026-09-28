@@ -3,7 +3,7 @@ kind: phase
 name: phase-03-videos
 sources_mtime:
   docs/project-plan.md: "2026-09-28T15:46:09-03:00"
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T16:46:27-03:00"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T17:07:32-03:00"
   docs/decisions/technical-decisions-openapi-docs-nestjs.md: "2026-09-28T15:46:56-03:00"
   docs/decisions/technical-decisions-next-frontend-openapi-typing.md: "2026-09-28T15:46:56-03:00"
   docs/decisions/technical-decisions-next-frontend-config-base.md: "2026-09-28T15:46:56-03:00"
@@ -62,6 +62,7 @@ sources_mtime:
 | phase-03-videos/TD-09 | phase | Cross-layer | Streaming and Download Delivery | pending | — | — |
 | phase-03-videos/TD-10 | phase | Cross-layer | Playback Access Policy in Phase 03 | pending | — | — |
 | phase-03-videos/TD-11 | phase | Backend | Job Enqueue Consistency and Idempotency | pending | — | — |
+| phase-03-videos/TD-12 | phase | Backend | Cleanup of Abandoned Uploads and Stale Drafts | pending | — | — |
 
 _Source files:_
 
@@ -71,7 +72,7 @@ _Source files:_
 
 | Capability (from project-plan.md) | Covered by |
 |-----------------------------------|------------|
-| Serviço de armazenamento de arquivos (vídeos e thumbnails) | phase-03-videos/TD-03, phase-03-videos/TD-04 |
+| Serviço de armazenamento de arquivos (vídeos e thumbnails) | phase-03-videos/TD-03, phase-03-videos/TD-04, phase-03-videos/TD-12 |
 | Serviço de processamento em segundo plano (filas) | phase-03-videos/TD-01, phase-03-videos/TD-05 |
 | Upload de vídeos com suporte a arquivos de até 10GB sem impacto na performance | phase-03-videos/TD-02 |
 | Pré-cadastro automático do vídeo como rascunho ao iniciar o upload | phase-03-videos/TD-07 |
