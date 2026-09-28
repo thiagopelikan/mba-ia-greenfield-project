@@ -8,6 +8,7 @@ import {
   type ProcessVideoJobData,
 } from '../videos/videos.constants';
 import { VideosService } from '../videos/videos.service';
+import { UploadSweeperService } from './upload-sweeper.service';
 import { VideoProcessingService } from './video-processing.service';
 
 @Processor(VIDEO_PROCESSING_QUEUE, { concurrency: 2 })
@@ -17,16 +18,19 @@ export class VideoProcessingProcessor extends WorkerHost {
   constructor(
     private readonly processing: VideoProcessingService,
     private readonly videosService: VideosService,
+    private readonly sweeper: UploadSweeperService,
   ) {
     super();
   }
 
-  async process(job: Job): Promise<void> {
+  async process(job: Job): Promise<unknown> {
     switch (job.name) {
       case VIDEO_JOBS.PROCESS:
         return this.processing.process(
           (job.data as ProcessVideoJobData).videoId,
         );
+      case VIDEO_JOBS.SWEEP:
+        return this.sweeper.sweep();
       default:
         throw new Error(`Unknown job name: ${job.name}`);
     }

@@ -5,7 +5,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Queue } from 'bullmq';
-import { In, Repository } from 'typeorm';
+import { In, LessThan, Repository } from 'typeorm';
 import { ChannelsService } from '../channels/channels.service';
 import { isUniqueViolationOn } from '../common/database/pg-errors';
 import {
@@ -230,6 +230,14 @@ export class VideosService {
 
   async findById(id: string): Promise<Video | null> {
     return this.videoRepository.findOneBy({ id });
+  }
+
+  /** Drafts whose upload started before `olderThan` (sweeper input). */
+  async findExpiredDrafts(olderThan: Date): Promise<Video[]> {
+    return this.videoRepository.find({
+      where: { status: VideoStatus.DRAFT, created_at: LessThan(olderThan) },
+      order: { created_at: 'ASC' },
+    });
   }
 
   /** processing → ready; a no-op for videos no longer in processing. */

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { StorageModule } from '../storage/storage.module';
 import { VideosModule } from '../videos/videos.module';
 import { MediaToolsService } from './media-tools.service';
+import { UploadSweeperService } from './upload-sweeper.service';
 import { VideoProcessingProcessor } from './video-processing.processor';
 import { VideoProcessingService } from './video-processing.service';
 
@@ -11,6 +12,7 @@ import { VideoProcessingService } from './video-processing.service';
   providers: [
     MediaToolsService,
     VideoProcessingService,
+    UploadSweeperService,
     VideoProcessingProcessor,
   ],
 })

@@ -17,13 +17,16 @@ describe('VideoProcessingProcessor', () => {
   let processor: VideoProcessingProcessor;
   let processing: { process: jest.Mock };
   let videosService: { markFailed: jest.Mock };
+  let sweeper: { sweep: jest.Mock };
 
   beforeEach(() => {
     processing = { process: jest.fn().mockResolvedValue(undefined) };
     videosService = { markFailed: jest.fn().mockResolvedValue(true) };
+    sweeper = { sweep: jest.fn().mockResolvedValue(2) };
     processor = new VideoProcessingProcessor(
       processing as any,
       videosService as any,
+      sweeper as any,
     );
   });
 
@@ -34,6 +37,13 @@ describe('VideoProcessingProcessor', () => {
       expect(processing.process).toHaveBeenCalledWith('video-1');
     });
 
+    it('should dispatch sweep-expired-uploads jobs to the sweeper', async () => {
+      await expect(
+        processor.process(job({ name: 'sweep-expired-uploads', data: {} })),
+      ).resolves.toBe(2);
+      expect(sweeper.sweep).toHaveBeenCalled();
+    });
+
     it('should reject unknown job names', async () => {
       await expect(processor.process(job({ name: 'other' }))).rejects.toThrow(
         'Unknown job name: other',
@@ -42,6 +52,15 @@ describe('VideoProcessingProcessor', () => {
   });
 
   describe('onFailed', () => {
+    it('should ignore failures of sweep jobs', async () => {
+      await processor.onFailed(
+        job({ name: 'sweep-expired-uploads', attemptsMade: 3 }),
+        new Error('boom'),
+      );
+
+      expect(videosService.markFailed).not.toHaveBeenCalled();
+    });
+
     it('should not mark the video failed while retries remain', async () => {
       await processor.onFailed(job({ attemptsMade: 1 }), new Error('boom'));
 

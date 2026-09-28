@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 10/13 completed
+**SIs:** 11/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -80,9 +80,11 @@
   - start:worker:dev uses node --watch + ts-node/register/transpile-only (nest start --watch would share and delete dist/ with the API's start:dev). Verified: docker compose stop video-worker completes in ~1s.
 
 ### SI-03.11 — Limpeza de uploads abandonados (job sweep-expired-uploads)
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 7 new passing (upload-sweeper.service.integration-spec.ts: 4, video-processing.processor.spec.ts: +3 → 9); src/video-processing 28/28
+- **Observations:**
+  - UploadSweeperService registers the scheduler in onApplicationBootstrap (only the worker imports it); verified in Redis: bull:video-processing:repeat:sweep-expired-uploads every=3600000.
+  - NoSuchUpload on abort is tolerated (MinIO may have already reclaimed stale parts); any other storage error propagates so the job retries.
 
 ### SI-03.12 — Fluxo completo upload → processamento → streaming (infra real)
 - **Status:** pending
