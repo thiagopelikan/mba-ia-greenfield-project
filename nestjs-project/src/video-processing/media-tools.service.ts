@@ -25,6 +25,7 @@ export interface ProbeResult {
 
 interface FfprobeStream {
   codec_type?: string;
+  disposition?: { attached_pic?: number };
   codec_name?: string;
   width?: number;
   height?: number;
@@ -129,7 +130,11 @@ export function thumbnailTimestamp(durationSeconds: number | null): number {
 
 function toProbeResult(output: FfprobeOutput): ProbeResult {
   const streams = output.streams ?? [];
-  const video = streams.find((s) => s.codec_type === 'video');
+  // Cover art (e.g. in .m4a/.mp3) is reported as a "video" stream flagged as
+  // an attached picture — it is not a video track.
+  const video = streams.find(
+    (s) => s.codec_type === 'video' && s.disposition?.attached_pic !== 1,
+  );
   const audio = streams.find((s) => s.codec_type === 'audio');
   const format = output.format ?? {};
   return {

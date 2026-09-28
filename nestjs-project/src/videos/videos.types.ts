@@ -26,6 +26,8 @@ export interface VideoView {
 
 export interface UploadPartUrlView {
   part_number: number;
+  /** Exact byte count the presigned URL accepts (signed Content-Length). */
+  size: number;
   url: string;
 }
 

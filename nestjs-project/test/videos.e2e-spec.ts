@@ -200,6 +200,42 @@ describe('Videos (e2e)', () => {
     });
   });
 
+  describe('upload size enforcement', () => {
+    it('binds-part-urls-to-exact-sizes: oversized parts are rejected by the storage', async () => {
+      const res = await initiate({
+        file_name: 'clip.mp4',
+        file_size: 2048,
+        mime_type: 'video/mp4',
+      }).expect(201);
+      const [part] = res.body.upload.parts;
+      expect(part.size).toBe(2048);
+
+      const oversized = await requestPresigned(part.url, {
+        method: 'PUT',
+        body: randomBytes(4096),
+      });
+
+      expect(oversized.status).toBe(403);
+    });
+
+    it('rejects-incomplete-part-lists: completing without every planned part returns 400', async () => {
+      const res = await initiate({
+        file_name: 'clip.mp4',
+        file_size: 150 * MIB,
+        mime_type: 'video/mp4',
+      }).expect(201);
+      expect(res.body.upload.part_count).toBeGreaterThan(1);
+
+      const incomplete = await http()
+        .post(`/videos/${res.body.video.slug}/upload/complete`)
+        .set(auth(ownerToken))
+        .send({ parts: [{ part_number: 1, etag: '"any"' }] })
+        .expect(400);
+
+      expect(incomplete.body.error).toBe('INVALID_UPLOAD_PARTS');
+    });
+  });
+
   describe('playback access by slug', () => {
     it('hides-unfinished-videos-from-non-owners', async () => {
       const channelId = await ownerChannelId();

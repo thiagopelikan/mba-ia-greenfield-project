@@ -9,6 +9,7 @@ import videoConfig from '../config/video.config';
 import { StorageModule } from '../storage/storage.module';
 import { StorageService } from '../storage/storage.service';
 import { cleanAllTables } from '../test/create-test-data-source';
+import { requestPresigned } from '../test/storage-http';
 import {
   createUserWithChannel,
   insertVideo,
@@ -130,6 +131,28 @@ describe('UploadSweeperService (integration — DB + MinIO + Redis)', () => {
     await storage.abortMultipartUpload(stale.storage_key, stale.upload_id!);
 
     await expect(sweeper.sweep()).resolves.toBe(1);
+  });
+
+  it('should delete the assembled original of a stale draft that was never enqueued', async () => {
+    const stale = await draftCreatedHoursAgo(26);
+    await storage.abortMultipartUpload(stale.storage_key, stale.upload_id!);
+    await storage.putObject(
+      stale.storage_key,
+      Buffer.from('assembled'),
+      'video/mp4',
+    );
+    await dataSource.query(
+      `UPDATE "videos" SET "upload_id" = NULL WHERE "id" = $1`,
+      [stale.id],
+    );
+
+    await expect(sweeper.sweep()).resolves.toBe(1);
+
+    const url = await storage.presignGetObject(stale.storage_key, {
+      ttlSeconds: 60,
+      audience: 'internal',
+    });
+    expect((await requestPresigned(url)).status).toBe(404);
   });
 
   it('should register the hourly sweep job scheduler on bootstrap', async () => {

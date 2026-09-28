@@ -10,7 +10,7 @@ import { Queue } from 'bullmq';
 import videoConfig from '../config/video.config';
 import { StorageMultipartException } from '../storage/storage.errors';
 import { StorageService } from '../storage/storage.service';
-import { VideoFailureReason } from '../videos/entities/video.entity';
+import type { Video } from '../videos/entities/video.entity';
 import { VIDEO_JOBS, VIDEO_PROCESSING_QUEUE } from '../videos/videos.constants';
 import { VideosService } from '../videos/videos.service';
 
@@ -42,6 +42,12 @@ export class UploadSweeperService implements OnApplicationBootstrap {
     );
   }
 
+  /**
+   * Abort first, then expire only if still a draft: a completion racing the
+   * sweep either fails with NoSuchUpload (the draft is expired) or wins and
+   * keeps its `processing` status. One broken draft never blocks the others;
+   * failures make the job fail so BullMQ retries the sweep.
+   */
   async sweep(now = new Date()): Promise<number> {
     const cutoff = new Date(
       now.getTime() - this.config.uploadWindowHours * 60 * 60 * 1000,
@@ -49,21 +55,34 @@ export class UploadSweeperService implements OnApplicationBootstrap {
     const drafts = await this.videosService.findExpiredDrafts(cutoff);
 
     let expired = 0;
+    let failures = 0;
     for (const draft of drafts) {
-      if (draft.upload_id) {
-        await this.abortIgnoringMissing(draft.storage_key, draft.upload_id);
-      }
-      if (
-        await this.videosService.markFailed(
-          draft.id,
-          VideoFailureReason.UPLOAD_EXPIRED,
-        )
-      ) {
-        expired++;
+      try {
+        if (await this.expire(draft)) expired++;
+      } catch (err) {
+        failures++;
+        this.logger.error(`Could not expire draft ${draft.id}`, err);
       }
     }
     if (expired > 0) {
       this.logger.log(`Expired ${expired} abandoned upload(s)`);
+    }
+    if (failures > 0) {
+      throw new Error(`${failures} draft(s) could not be expired`);
+    }
+    return expired;
+  }
+
+  private async expire(draft: Video): Promise<boolean> {
+    if (draft.upload_id) {
+      await this.abortIgnoringMissing(draft.storage_key, draft.upload_id);
+      return this.videosService.expireDraft(draft.id);
+    }
+    // upload_id null: the object was assembled but enqueueing failed and the
+    // owner never retried — reclaim the full-size original too.
+    const expired = await this.videosService.expireDraft(draft.id);
+    if (expired) {
+      await this.storage.deleteObject(draft.storage_key);
     }
     return expired;
   }

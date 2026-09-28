@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { promisify } from 'node:util';
 import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import storageConfig from '../config/storage.config';
@@ -8,6 +10,8 @@ import { StorageModule } from '../storage/storage.module';
 import { StorageService } from '../storage/storage.service';
 import { generateSampleVideo } from '../test/sample-video';
 import { InvalidMediaError, MediaToolsService } from './media-tools.service';
+
+const execFileAsync = promisify(execFile);
 
 describe('MediaToolsService (integration — FFmpeg + MinIO)', () => {
   let media: MediaToolsService;
@@ -67,6 +71,24 @@ describe('MediaToolsService (integration — FFmpeg + MinIO)', () => {
     expect(jpeg.subarray(0, 2)).toEqual(Buffer.from([0xff, 0xd8]));
     const probe = await media.probe(output);
     expect(probe.metadata.width).toBe(1280);
+  });
+
+  it('should not count embedded cover art as a video stream', async () => {
+    const dir = dirname(samplePath);
+    const cover = join(dir, 'cover.jpg');
+    const audio = join(dir, 'song.m4a');
+    await media.extractFrame(sampleUrl, 0.5, cover);
+    await execFileAsync('ffmpeg', [
+      ...['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2'],
+      ...['-i', cover, '-map', '0', '-map', '1'],
+      ...['-c:a', 'aac', '-c:v', 'mjpeg', '-disposition:v', 'attached_pic'],
+      ...['-y', audio],
+    ]);
+
+    const result = await media.probe(audio);
+
+    expect(result.hasVideoStream).toBe(false);
+    expect(result.metadata.audio_codec).toBe('aac');
   });
 
   it('should reject content that is not a media file as InvalidMediaError', async () => {

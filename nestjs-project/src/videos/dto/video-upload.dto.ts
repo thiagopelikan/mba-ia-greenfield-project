@@ -5,6 +5,12 @@ export class UploadPartUrlDto {
   @ApiProperty({ example: 1 })
   part_number: number;
 
+  @ApiProperty({
+    example: 67108864,
+    description: 'Exact byte count this URL accepts (Content-Length is signed)',
+  })
+  size: number;
+
   @ApiProperty({ description: 'Presigned PUT URL for this part' })
   url: string;
 }

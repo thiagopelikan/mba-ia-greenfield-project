@@ -1003,6 +1003,11 @@
             "type": "number",
             "example": 1
           },
+          "size": {
+            "type": "number",
+            "example": 67108864,
+            "description": "Exact byte count this URL accepts (Content-Length is signed)"
+          },
           "url": {
             "type": "string",
             "description": "Presigned PUT URL for this part"
@@ -1010,6 +1015,7 @@
         },
         "required": [
           "part_number",
+          "size",
           "url"
         ]
       },

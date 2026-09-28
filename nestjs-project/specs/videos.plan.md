@@ -106,6 +106,29 @@ The videos controller exposes the Phase 03 HTTP contract: authenticated users pr
     - expect: status 400 with `error: "INVALID_UPLOAD_PARTS"`
     - expect: the video is still `draft`
 
+#### 2.4. binds-part-urls-to-exact-sizes
+
+**Covers AC:** #1
+**Source:** auto
+**Last sync:** 2026-09-28T22:30:00Z
+
+**Steps:**
+  1. POST /videos by the owner with `file_size: 2048`
+    - expect: `upload.parts[0].size` is 2048
+  2. PUT 4096 bytes to `upload.parts[0].url`
+    - expect: the storage rejects it with 403 (Content-Length is signed)
+
+#### 2.5. rejects-incomplete-part-lists
+
+**Covers AC:** #3
+**Source:** auto
+**Last sync:** 2026-09-28T22:30:00Z
+
+**Steps:**
+  1. POST /videos by the owner with a size that needs more than one part (150 MiB)
+  2. POST /videos/:slug/upload/complete listing only part 1
+    - expect: status 400 with `error: "INVALID_UPLOAD_PARTS"`
+
 ### 3. Playback access by slug
 
 **Setup:** same as group 1; videos are inserted directly through the repository in the needed status (a `ready` video has its original object uploaded to the bucket).
