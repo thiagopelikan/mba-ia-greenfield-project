@@ -5,7 +5,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Queue } from 'bullmq';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { ChannelsService } from '../channels/channels.service';
 import { isUniqueViolationOn } from '../common/database/pg-errors';
 import {
@@ -20,7 +20,12 @@ import videoConfig from '../config/video.config';
 import { StorageMultipartException } from '../storage/storage.errors';
 import { StorageService } from '../storage/storage.service';
 import type { CompletedPart } from '../storage/storage.types';
-import { Video, VideoStatus } from './entities/video.entity';
+import {
+  Video,
+  VideoFailureReason,
+  type VideoMetadata,
+  VideoStatus,
+} from './entities/video.entity';
 import { generateVideoSlug } from './video-slug.util';
 import {
   VIDEO_JOBS,
@@ -221,6 +226,41 @@ export class VideosService {
     }
 
     return this.toView(video);
+  }
+
+  async findById(id: string): Promise<Video | null> {
+    return this.videoRepository.findOneBy({ id });
+  }
+
+  /** processing → ready; a no-op for videos no longer in processing. */
+  async markReady(
+    id: string,
+    result: {
+      durationSeconds: number | null;
+      metadata: VideoMetadata;
+      thumbnailKey: string;
+    },
+  ): Promise<boolean> {
+    const update = await this.videoRepository.update(
+      { id, status: VideoStatus.PROCESSING },
+      {
+        status: VideoStatus.READY,
+        duration_seconds: result.durationSeconds,
+        metadata: result.metadata,
+        thumbnail_key: result.thumbnailKey,
+        failure_reason: null,
+      },
+    );
+    return (update.affected ?? 0) > 0;
+  }
+
+  /** draft|processing → failed with the given reason (terminal state). */
+  async markFailed(id: string, reason: VideoFailureReason): Promise<boolean> {
+    const update = await this.videoRepository.update(
+      { id, status: In([VideoStatus.DRAFT, VideoStatus.PROCESSING]) },
+      { status: VideoStatus.FAILED, failure_reason: reason, upload_id: null },
+    );
+    return (update.affected ?? 0) > 0;
   }
 
   private async findVisible(

@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 8/13 completed
+**SIs:** 9/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -64,9 +64,11 @@
   - probe() throws InvalidMediaError only when ffprobe/ffmpeg stderr says the content itself is invalid (e.g. 'Invalid data found when processing input'); other failures (network, timeout) propagate as retryable errors.
 
 ### SI-03.9 — Processamento automático do vídeo (job process-video)
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 14/14 passing (video-processing.service.spec.ts: 5, video-processing.service.integration-spec.ts: 3, video-processing.processor.spec.ts: 6)
+- **Observations:**
+  - markReady/markFailed use conditional UPDATE (status guard) so concurrent/duplicate deliveries cannot move a video backwards; markFailed also clears upload_id.
+  - Processor concurrency: 2 jobs per worker process.
 
 ### SI-03.10 — Worker de vídeo: entrypoint, WorkerModule e serviço video-worker
 - **Status:** pending
