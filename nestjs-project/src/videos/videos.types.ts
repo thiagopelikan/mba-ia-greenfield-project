@@ -40,3 +40,17 @@ export interface InitiatedUploadView {
   video: VideoView;
   upload: UploadPlanView;
 }
+
+export interface UploadedPartView {
+  part_number: number;
+  etag: string;
+  size: number;
+}
+
+export interface UploadSessionView {
+  part_size: number;
+  part_count: number;
+  uploaded_parts: UploadedPartView[];
+  parts: UploadPartUrlView[];
+  expires_at: Date;
+}

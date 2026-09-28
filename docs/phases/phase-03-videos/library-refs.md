@@ -5,7 +5,7 @@ libs:
     context7_id: "/taskforcesh/bullmq"
     fetched_at: "2026-09-28T17:40:00-03:00"
   "@nestjs/bullmq":
-    version: "^12.0.0"
+    version: "^11.0.5"
     context7_id: "/nestjs/docs.nestjs.com"
     fetched_at: "2026-09-28T17:40:00-03:00"
   "ioredis":
@@ -26,7 +26,7 @@ sources_mtime:
 
 # Library references — phase-03-videos
 
-Distilled from Context7 (fetched 2026-09-28) for the surfaces this phase uses. Versions are the current npm releases, compatible with the installed stack (NestJS 11.1.16, Node 25 image). `@nestjs/bullmq@12` declares peers `@nestjs/core ^10 || ^11 || ^12` and `bullmq ^3 || ^4 || ^5 || ^6`.
+Distilled from Context7 (fetched 2026-09-28) for the surfaces this phase uses. Versions are compatible with the installed stack (NestJS 11.1.16, Node 25 image). `@nestjs/bullmq` is pinned to **11.0.5** (peers `@nestjs/core ^10 || ^11`, `bullmq ^3..^6`): the 12.x line is published as ESM-only (`"type": "module"`), which the project's CommonJS Jest runtime cannot load (fixed during SI-03.5). The API surface used below is identical in 11.x.
 
 ### bullmq
 

@@ -1,5 +1,12 @@
 import { QueryFailedError } from 'typeorm';
-import { VideoFileTooLargeException } from '../common/exceptions/domain.exception';
+import {
+  InvalidUploadPartsException,
+  VideoFileTooLargeException,
+  VideoNotFoundException,
+  VideoNotUploadableException,
+  VideoProcessingUnavailableException,
+} from '../common/exceptions/domain.exception';
+import { StorageMultipartException } from '../storage/storage.errors';
 import { Video, VideoStatus } from './entities/video.entity';
 import { VideosService } from './videos.service';
 
@@ -21,12 +28,19 @@ function slugViolation(): QueryFailedError {
 
 describe('VideosService', () => {
   let service: VideosService;
-  let videoRepository: { create: jest.Mock; save: jest.Mock };
+  let videoRepository: {
+    create: jest.Mock;
+    save: jest.Mock;
+    findOne: jest.Mock;
+  };
+  let queue: { add: jest.Mock };
   let channelsService: { findByUserId: jest.Mock };
   let storage: {
     createMultipartUpload: jest.Mock;
     presignUploadPart: jest.Mock;
     abortMultipartUpload: jest.Mock;
+    listParts: jest.Mock;
+    completeMultipartUpload: jest.Mock;
   };
 
   beforeEach(() => {
@@ -40,7 +54,9 @@ describe('VideosService', () => {
           updated_at: new Date(),
         }),
       ),
+      findOne: jest.fn(),
     };
+    queue = { add: jest.fn().mockResolvedValue({ id: 'job' }) };
     channelsService = {
       findByUserId: jest.fn().mockResolvedValue({ id: 'channel-1' }),
     };
@@ -51,12 +67,15 @@ describe('VideosService', () => {
           Promise.resolve(`https://storage/part-${part}`),
       ),
       abortMultipartUpload: jest.fn().mockResolvedValue(undefined),
+      listParts: jest.fn().mockResolvedValue([]),
+      completeMultipartUpload: jest.fn().mockResolvedValue(undefined),
     };
     service = new VideosService(
       videoRepository as any,
       channelsService as any,
       storage as any,
       config,
+      queue as any,
     );
   });
 
@@ -121,6 +140,124 @@ describe('VideosService', () => {
         expect.stringMatching(/^videos\/.+\/original$/),
         'upload-1',
       );
+    });
+  });
+
+  function ownedVideo(overrides: Partial<Video> = {}): Video {
+    return {
+      id: 'video-1',
+      slug: 'abcdefghijk',
+      status: VideoStatus.DRAFT,
+      size_bytes: 150 * MIB,
+      storage_key: 'videos/video-1/original',
+      upload_id: 'upload-1',
+      channel: { user_id: 'owner' },
+      ...overrides,
+    } as Video;
+  }
+
+  describe('getUploadSession', () => {
+    it('should list stored parts and re-sign only the missing ones', async () => {
+      videoRepository.findOne.mockResolvedValue(ownedVideo());
+      storage.listParts.mockResolvedValue([
+        { partNumber: 1, etag: '"e1"', size: 64 * MIB },
+      ]);
+
+      const session = await service.getUploadSession('owner', 'abcdefghijk');
+
+      expect(session.uploaded_parts).toEqual([
+        { part_number: 1, etag: '"e1"', size: 64 * MIB },
+      ]);
+      expect(session.parts.map((p) => p.part_number)).toEqual([2, 3]);
+      expect(session.part_count).toBe(3);
+    });
+
+    it('should hide videos of other channels as not found', async () => {
+      videoRepository.findOne.mockResolvedValue(ownedVideo());
+
+      await expect(
+        service.getUploadSession('intruder', 'abcdefghijk'),
+      ).rejects.toBeInstanceOf(VideoNotFoundException);
+    });
+
+    it('should reject videos that are no longer drafts', async () => {
+      videoRepository.findOne.mockResolvedValue(
+        ownedVideo({ status: VideoStatus.PROCESSING }),
+      );
+
+      await expect(
+        service.getUploadSession('owner', 'abcdefghijk'),
+      ).rejects.toBeInstanceOf(VideoNotUploadableException);
+    });
+  });
+
+  describe('completeUpload', () => {
+    const parts = [{ partNumber: 1, etag: '"e1"' }];
+
+    it('should assemble the object, mark processing and enqueue with jobId = videoId', async () => {
+      videoRepository.findOne.mockResolvedValue(ownedVideo());
+
+      const view = await service.completeUpload('owner', 'abcdefghijk', parts);
+
+      expect(storage.completeMultipartUpload).toHaveBeenCalledWith(
+        'videos/video-1/original',
+        'upload-1',
+        parts,
+      );
+      expect(view.status).toBe(VideoStatus.PROCESSING);
+      expect(queue.add).toHaveBeenCalledWith(
+        'process-video',
+        { videoId: 'video-1' },
+        { jobId: 'video-1' },
+      );
+      const saved = videoRepository.save.mock.calls[0][0] as Video;
+      expect(saved.upload_id).toBeNull();
+    });
+
+    it('should map storage part errors to INVALID_UPLOAD_PARTS and keep the draft', async () => {
+      videoRepository.findOne.mockResolvedValue(ownedVideo());
+      storage.completeMultipartUpload.mockRejectedValue(
+        new StorageMultipartException('InvalidPart', 'bad etag'),
+      );
+
+      await expect(
+        service.completeUpload('owner', 'abcdefghijk', parts),
+      ).rejects.toBeInstanceOf(InvalidUploadPartsException);
+      expect(videoRepository.save).not.toHaveBeenCalled();
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it('should revert to draft and raise VIDEO_PROCESSING_UNAVAILABLE when enqueue fails', async () => {
+      videoRepository.findOne.mockResolvedValue(ownedVideo());
+      queue.add.mockRejectedValue(new Error('redis down'));
+
+      await expect(
+        service.completeUpload('owner', 'abcdefghijk', parts),
+      ).rejects.toBeInstanceOf(VideoProcessingUnavailableException);
+      const lastSaved = videoRepository.save.mock.calls.at(-1)[0] as Video;
+      expect(lastSaved.status).toBe(VideoStatus.DRAFT);
+      expect(lastSaved.upload_id).toBeNull();
+    });
+
+    it('should only re-enqueue when the object was already assembled', async () => {
+      videoRepository.findOne.mockResolvedValue(
+        ownedVideo({ upload_id: null }),
+      );
+
+      await service.completeUpload('owner', 'abcdefghijk', parts);
+
+      expect(storage.completeMultipartUpload).not.toHaveBeenCalled();
+      expect(queue.add).toHaveBeenCalled();
+    });
+
+    it('should reject completion of non-draft videos', async () => {
+      videoRepository.findOne.mockResolvedValue(
+        ownedVideo({ status: VideoStatus.READY }),
+      );
+
+      await expect(
+        service.completeUpload('owner', 'abcdefghijk', parts),
+      ).rejects.toBeInstanceOf(VideoNotUploadableException);
     });
   });
 });

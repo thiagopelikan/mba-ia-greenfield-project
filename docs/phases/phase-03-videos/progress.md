@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 4/13 completed
+**SIs:** 5/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -35,9 +35,12 @@
   - Test helper src/test/video-test-helpers.ts: explicit entity array + retryAttempts: 0 for Nest test modules (autoLoadEntities alone misses User via Channel relation and TypeORM retries silently until timeout).
 
 ### SI-03.5 — Fila de processamento, retomada e conclusão do upload
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 19/19 passing in this SI (videos.service.spec.ts: +8 → 14, videos.service.integration-spec.ts: +4 → 7, queue.module.spec.ts: 1); src/videos + src/queue 30/30
+- **Observations:**
+  - @nestjs/bullmq pinned to ^11.0.5 instead of ^12.0.0: 12.x is ESM-only and the CommonJS Jest runtime cannot parse it; 11.0.5 supports bullmq ^6 and NestJS 11 with the same API (library-refs.md updated).
+  - Integration tests register BullMQ with prefix 'bull-test' so the Compose video-worker (SI-03.10) never consumes their jobs.
+  - Enqueue failure after the multipart is assembled reverts to draft with upload_id = null; a retried complete skips storage and only re-enqueues (TD-11 retry path). getUploadSession on such a draft returns VIDEO_NOT_UPLOADABLE (nothing left to upload).
 
 ### SI-03.6 — Acesso de reprodução: consulta por slug, stream, download e auth opcional
 - **Status:** pending
