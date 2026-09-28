@@ -31,12 +31,19 @@ describe('Database migrations (integration)', () => {
 
     await dataSource.initialize();
 
-    await Promise.all([
-      ...MANAGED_TABLES.map((table) =>
-        dataSource.query(`DROP TABLE IF EXISTS "${table}" CASCADE`),
-      ),
-      dataSource.query(`DROP TABLE IF EXISTS "migrations" CASCADE`),
-    ]);
+    // Sequential drops: concurrent DROP ... CASCADE on FK-related tables can deadlock.
+    for (const table of [...MANAGED_TABLES, 'migrations']) {
+      await dataSource.query(`DROP TABLE IF EXISTS "${table}" CASCADE`);
+    }
+    // Enum types outlive their tables; leftovers make `CREATE TYPE` fail on re-run.
+    const enumTypes = await dataSource.query<{ typname: string }[]>(
+      `SELECT t.typname FROM pg_type t
+       JOIN pg_namespace n ON n.oid = t.typnamespace
+       WHERE n.nspname = 'public' AND t.typtype = 'e'`,
+    );
+    for (const { typname } of enumTypes) {
+      await dataSource.query(`DROP TYPE IF EXISTS "public"."${typname}"`);
+    }
   });
 
   afterAll(async () => {
