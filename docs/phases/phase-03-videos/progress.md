@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 11/13 completed
+**SIs:** 12/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -87,9 +87,11 @@
   - NoSuchUpload on abort is tolerated (MinIO may have already reclaimed stale parts); any other storage error propagates so the job retries.
 
 ### SI-03.12 — Fluxo completo upload → processamento → streaming (infra real)
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 5/5 passing (test/video-pipeline.e2e-spec.ts against the Compose video-worker); full suites: unit+integration 229/229 (37 suites), E2E 67/67 (5 suites)
+- **Observations:**
+  - The pipeline spec lowers VIDEO_UPLOAD_PART_SIZE_BYTES to the 5 MiB S3 minimum through a side-effect module imported before AppModule (test/small-upload-parts.env.ts), so a ~10 MB sample is uploaded as a real multi-part upload.
+  - Sample generator adds temporal noise when a bitrate is requested: x264 compresses the plain lavfi test pattern to ~0.6 MB regardless of -b:v.
 
 ### SI-03.13 — Documentação de IA e de testes atualizada
 - **Status:** pending
