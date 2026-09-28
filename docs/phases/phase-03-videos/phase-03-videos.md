@@ -200,7 +200,7 @@ Entregar o upload de vídeos de até 10GB direto para o object storage (MinIO/S3
 ### SI-03.7 — Endpoints de vídeos (VideosController, DTOs e OpenAPI)
 
 **Route:** POST /videos · GET /videos/:slug/upload · POST /videos/:slug/upload/complete · GET /videos/:slug · GET /videos/:slug/stream · GET /videos/:slug/download
-**Test Specs:** _pending /plan-test-specs_
+**Test Specs:** see `nestjs-project/specs/videos.plan.md`
 **Authorization:** per `### Authorization Matrix`
 
 **Description:** Expõe os contratos HTTP da fase delegando ao `VideosService`, com validação de DTOs e documentação Swagger no padrão do projeto.
