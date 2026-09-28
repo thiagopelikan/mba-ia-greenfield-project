@@ -690,31 +690,31 @@ Ordem de execução (topológica): SI-03.1 → SI-03.2 → SI-03.3 → SI-03.4 �
 
 ## Deliverables
 
-- [ ] SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
-- [ ] SI-03.2 — Storage: StorageModule e StorageService sobre S3/MinIO
-- [ ] SI-03.3 — Entidade Video, relação com Channel e migration
-- [ ] SI-03.4 — Pré-cadastro do vídeo e início do upload direto
-- [ ] SI-03.5 — Fila de processamento, retomada e conclusão do upload
-- [ ] SI-03.6 — Acesso de reprodução: consulta por slug, stream, download e auth opcional
-- [ ] SI-03.7 — Endpoints de vídeos (VideosController, DTOs e OpenAPI)
-- [ ] SI-03.8 — Ferramentas de mídia: ffprobe e ffmpeg
-- [ ] SI-03.9 — Processamento automático do vídeo (job process-video)
-- [ ] SI-03.10 — Worker de vídeo: entrypoint, WorkerModule e serviço video-worker
-- [ ] SI-03.11 — Limpeza de uploads abandonados (job sweep-expired-uploads)
-- [ ] SI-03.12 — Fluxo completo upload → processamento → streaming (infra real)
-- [ ] SI-03.13 — Documentação de IA e de testes atualizada
+- [x] SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
+- [x] SI-03.2 — Storage: StorageModule e StorageService sobre S3/MinIO
+- [x] SI-03.3 — Entidade Video, relação com Channel e migration
+- [x] SI-03.4 — Pré-cadastro do vídeo e início do upload direto
+- [x] SI-03.5 — Fila de processamento, retomada e conclusão do upload
+- [x] SI-03.6 — Acesso de reprodução: consulta por slug, stream, download e auth opcional
+- [x] SI-03.7 — Endpoints de vídeos (VideosController, DTOs e OpenAPI)
+- [x] SI-03.8 — Ferramentas de mídia: ffprobe e ffmpeg
+- [x] SI-03.9 — Processamento automático do vídeo (job process-video)
+- [x] SI-03.10 — Worker de vídeo: entrypoint, WorkerModule e serviço video-worker
+- [x] SI-03.11 — Limpeza de uploads abandonados (job sweep-expired-uploads)
+- [x] SI-03.12 — Fluxo completo upload → processamento → streaming (infra real)
+- [x] SI-03.13 — Documentação de IA e de testes atualizada
 
 **Entregáveis da fase (project-plan):**
 
-- [ ] Upload de até 10GB funcional (multipart direto ao storage; limite validado)
-- [ ] Processamento automático do vídeo (duração, metadados, thumbnail) pelo `video-worker`
-- [ ] Streaming funcionando (302 → presigned GET com `206 Partial Content`) e download do original
-- [ ] URLs únicas geradas (slug de 11 chars com índice unique)
+- [x] Upload de até 10GB funcional (multipart direto ao storage; limite validado)
+- [x] Processamento automático do vídeo (duração, metadados, thumbnail) pelo `video-worker`
+- [x] Streaming funcionando (302 → presigned GET com `206 Partial Content`) e download do original
+- [x] URLs únicas geradas (slug de 11 chars com índice unique)
 
 **Full test suites:**
 
-- [ ] Stack sobe completa (`cd nestjs-project && docker compose up -d && docker compose ps` — `db`, `mailpit`, `minio`, `redis`, `video-worker`, `nestjs-api` running; `minio-init` exited 0)
-- [ ] Backend tests pass (`cd nestjs-project && docker compose exec nestjs-api npm test -- --runInBand`)
-- [ ] E2E tests pass (`cd nestjs-project && docker compose exec nestjs-api npm run test:e2e`)
-- [ ] Type/compilation checks pass (`cd nestjs-project && docker compose exec nestjs-api npx tsc --noEmit`)
-- [ ] Lint passes (`cd nestjs-project && docker compose exec nestjs-api npm run lint`)
+- [x] Stack sobe completa (`cd nestjs-project && docker compose up -d && docker compose ps` — `db`, `mailpit`, `minio`, `redis`, `video-worker`, `nestjs-api` running; `minio-init` exited 0)
+- [x] Backend tests pass (`cd nestjs-project && docker compose exec nestjs-api npm test -- --runInBand`)
+- [x] E2E tests pass (`cd nestjs-project && docker compose exec nestjs-api npm run test:e2e`)
+- [x] Type/compilation checks pass (`cd nestjs-project && docker compose exec nestjs-api npx tsc --noEmit`)
+- [x] Lint passes (`cd nestjs-project && docker compose exec nestjs-api npm run lint`)

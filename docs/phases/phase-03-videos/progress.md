@@ -100,3 +100,11 @@
   - Testing guide: Object Storage → Real (Docker MinIO) and Message Queue → Real (Docker Redis + BullMQ), plus the two table rows that still mentioned a local storage adapter (validation.md IC-1).
   - Root CLAUDE.md: Message Queue = BullMQ on Redis, worker/storage roles; also corrected the stale 'next-frontend not yet initialized' line. software-arch.mermaid: queue no longer TBD; storage relations reflect presigned direct upload.
   - nestjs-controllers rule documents optional auth on @Public() routes introduced in SI-03.6.
+
+## Final verification — 2026-09-28
+
+- Stack: `docker compose up -d` → `db`, `mailpit`, `minio`, `redis`, `video-worker`, `nestjs-api` running; `minio-init` exited 0.
+- `npm test -- --runInBand`: 37 suites, 229/229 passing.
+- `npm run test:e2e`: 5 suites, 67/67 passing (includes the full pipeline against the `video-worker` container).
+- `npx tsc --noEmit`: exit 0. `npm run lint`: exit 0. `npm run build`: emits `dist/main.js` and `dist/worker.js`; `node dist/worker` starts consuming `video-processing`.
+
