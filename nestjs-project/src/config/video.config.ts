@@ -13,5 +13,8 @@ export default registerAs('video', () => ({
     process.env.VIDEO_PLAYBACK_URL_TTL_SECONDS || '3600',
     10,
   ),
-  uploadWindowHours: parseInt(process.env.VIDEO_UPLOAD_WINDOW_HOURS || '24', 10),
+  uploadWindowHours: parseInt(
+    process.env.VIDEO_UPLOAD_WINDOW_HOURS || '24',
+    10,
+  ),
 }));

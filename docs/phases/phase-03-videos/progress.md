@@ -1,20 +1,22 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 1/13 completed
+**SIs:** 2/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
 - **Tests:** 10/10 passing (env.validation.integration-spec.ts — 4 existing + 3 new)
-- **Observations:** 
+- **Observations:**
   - ioredis pinned to ^5.11.1 instead of the ^6.0.0 fetched in library-refs: typeorm@0.3.28 has an optional peer ioredis@^5, so npm refused v6; library-refs.md updated.
   - Upstream minio/minio images are no longer published on Docker Hub; Compose uses cgr.dev/chainguard/minio (MinIO RELEASE.2026-09-22) and cgr.dev/chainguard/minio-client. The images have no shell, so minio-init relies on MC_HOST_local + restart: on-failure.
   - Host port 3000 is busy on this machine; a git-excluded compose.override.yaml maps nestjs-api to 3010 locally (not part of the delivery).
 
 ### SI-03.2 — Storage: StorageModule e StorageService sobre S3/MinIO
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 7/7 passing (storage.service.integration-spec.ts: 6, storage.module.spec.ts: 1)
+- **Observations:**
+  - Test helper src/test/storage-http.ts connects to S3_ENDPOINT while sending the signed public Host header, reproducing what a browser sends to S3_PUBLIC_ENDPOINT.
+  - Download disposition uses RFC 6266 (ASCII filename fallback + filename*=UTF-8).
 
 ### SI-03.3 — Entidade Video, relação com Channel e migration
 - **Status:** pending
