@@ -22,6 +22,8 @@ When you add a new controller anywhere in the project (videos, comments, channel
 
 Do not invert the convention by trying to apply the JWT guard locally — the guard is global and stays global.
 
+**Optional auth on public routes:** on a `@Public()` route the guard still verifies a `Bearer` token when one is sent and attaches the payload to `request.user` (an invalid token is ignored, the route stays public). Use `@CurrentUser() user?: JwtPayload` when a public endpoint behaves differently for an identified caller (e.g. `GET /videos/:slug` shows unfinished videos only to their owner).
+
 For auth-domain rules (token rotation, `jti`, password reset flow, etc.) see `auth-jwt.md`.
 
 ## REST Compliance
