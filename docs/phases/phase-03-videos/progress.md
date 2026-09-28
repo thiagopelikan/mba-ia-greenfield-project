@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 2/13 completed
+**SIs:** 3/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -19,9 +19,11 @@
   - Download disposition uses RFC 6266 (ASCII filename fallback + filename*=UTF-8).
 
 ### SI-03.3 — Entidade Video, relação com Channel e migration
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 8/8 passing (video.entity.integration-spec.ts: 6, migrations.integration-spec.ts: 2); 119/119 across auth/users/channels/videos/database suites
+- **Observations:**
+  - Adding Channel.videos (both relation sides, per entity rules) requires Video in every test DataSource entity array that loads Channel; 10 existing specs updated to include it.
+  - Migration generated via CLI: 1790627695274-CreateVideos.ts.
 
 ### SI-03.4 — Pré-cadastro do vídeo e início do upload direto
 - **Status:** pending
