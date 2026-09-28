@@ -33,8 +33,9 @@ describe('VideosService', () => {
     create: jest.Mock;
     save: jest.Mock;
     findOne: jest.Mock;
+    update: jest.Mock;
   };
-  let queue: { add: jest.Mock };
+  let queue: { add: jest.Mock; remove: jest.Mock };
   let channelsService: { findByUserId: jest.Mock };
   let storage: {
     createMultipartUpload: jest.Mock;
@@ -57,8 +58,12 @@ describe('VideosService', () => {
         }),
       ),
       findOne: jest.fn(),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
     };
-    queue = { add: jest.fn().mockResolvedValue({ id: 'job' }) };
+    queue = {
+      add: jest.fn().mockResolvedValue({ id: 'job' }),
+      remove: jest.fn().mockResolvedValue(0),
+    };
     channelsService = {
       findByUserId: jest.fn().mockResolvedValue({ id: 'channel-1' }),
     };
@@ -95,6 +100,19 @@ describe('VideosService', () => {
       expect(result.upload.part_count).toBe(3);
       expect(result.upload.part_size).toBe(64 * MIB);
       expect(result.upload.parts.map((p) => p.part_number)).toEqual([1, 2, 3]);
+      // 150 MiB = 64 + 64 + 22: the last part carries the remainder.
+      expect(result.upload.parts.map((p) => p.size)).toEqual([
+        64 * MIB,
+        64 * MIB,
+        22 * MIB,
+      ]);
+      expect(storage.presignUploadPart).toHaveBeenCalledWith(
+        expect.any(String),
+        'upload-1',
+        3,
+        22 * MIB,
+        3600,
+      );
       expect(result.video.status).toBe(VideoStatus.DRAFT);
       const saved = videoRepository.save.mock.calls[0][0] as Video;
       expect(saved.channel_id).toBe('channel-1');
@@ -175,6 +193,17 @@ describe('VideosService', () => {
       expect(session.part_count).toBe(3);
     });
 
+    it('should report the upload as not resumable when storage no longer has it', async () => {
+      videoRepository.findOne.mockResolvedValue(ownedVideo());
+      storage.listParts.mockRejectedValue(
+        new StorageMultipartException('NoSuchUpload', 'gone'),
+      );
+
+      await expect(
+        service.getUploadSession('owner', 'abcdefghijk'),
+      ).rejects.toBeInstanceOf(VideoNotUploadableException);
+    });
+
     it('should hide videos of other channels as not found', async () => {
       videoRepository.findOne.mockResolvedValue(ownedVideo());
 
@@ -195,9 +224,30 @@ describe('VideosService', () => {
   });
 
   describe('completeUpload', () => {
-    const parts = [{ partNumber: 1, etag: '"e1"' }];
+    // ownedVideo() is 150 MiB → 3 planned parts.
+    const parts = [
+      { partNumber: 1, etag: '"e1"' },
+      { partNumber: 2, etag: '"e2"' },
+      { partNumber: 3, etag: '"e3"' },
+    ];
 
-    it('should assemble the object, mark processing and enqueue with jobId = videoId', async () => {
+    it.each([
+      ['a missing part', parts.slice(0, 2)],
+      ['a duplicated part', [parts[0], parts[0], parts[2]]],
+      [
+        'a part beyond the plan',
+        [...parts.slice(0, 2), { partNumber: 4, etag: '"e4"' }],
+      ],
+    ])('should reject %s with INVALID_UPLOAD_PARTS', async (_label, given) => {
+      videoRepository.findOne.mockResolvedValue(ownedVideo());
+
+      await expect(
+        service.completeUpload('owner', 'abcdefghijk', given),
+      ).rejects.toBeInstanceOf(InvalidUploadPartsException);
+      expect(storage.completeMultipartUpload).not.toHaveBeenCalled();
+    });
+
+    it('should assemble the object, move draft → processing and enqueue with jobId = videoId', async () => {
       videoRepository.findOne.mockResolvedValue(ownedVideo());
 
       const view = await service.completeUpload('owner', 'abcdefghijk', parts);
@@ -207,14 +257,17 @@ describe('VideosService', () => {
         'upload-1',
         parts,
       );
+      expect(videoRepository.update).toHaveBeenCalledWith(
+        { id: 'video-1', status: VideoStatus.DRAFT },
+        { status: VideoStatus.PROCESSING, upload_id: null },
+      );
       expect(view.status).toBe(VideoStatus.PROCESSING);
+      expect(queue.remove).toHaveBeenCalledWith('video-1');
       expect(queue.add).toHaveBeenCalledWith(
         'process-video',
         { videoId: 'video-1' },
         { jobId: 'video-1' },
       );
-      const saved = videoRepository.save.mock.calls[0][0] as Video;
-      expect(saved.upload_id).toBeNull();
     });
 
     it('should map storage part errors to INVALID_UPLOAD_PARTS and keep the draft', async () => {
@@ -226,7 +279,28 @@ describe('VideosService', () => {
       await expect(
         service.completeUpload('owner', 'abcdefghijk', parts),
       ).rejects.toBeInstanceOf(InvalidUploadPartsException);
-      expect(videoRepository.save).not.toHaveBeenCalled();
+      expect(videoRepository.update).not.toHaveBeenCalled();
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it('should report NOT_UPLOADABLE when the upload no longer exists in storage', async () => {
+      videoRepository.findOne.mockResolvedValue(ownedVideo());
+      storage.completeMultipartUpload.mockRejectedValue(
+        new StorageMultipartException('NoSuchUpload', 'gone'),
+      );
+
+      await expect(
+        service.completeUpload('owner', 'abcdefghijk', parts),
+      ).rejects.toBeInstanceOf(VideoNotUploadableException);
+    });
+
+    it('should not enqueue when the draft changed status concurrently', async () => {
+      videoRepository.findOne.mockResolvedValue(ownedVideo());
+      videoRepository.update.mockResolvedValueOnce({ affected: 0 });
+
+      await expect(
+        service.completeUpload('owner', 'abcdefghijk', parts),
+      ).rejects.toBeInstanceOf(VideoNotUploadableException);
       expect(queue.add).not.toHaveBeenCalled();
     });
 
@@ -237,9 +311,10 @@ describe('VideosService', () => {
       await expect(
         service.completeUpload('owner', 'abcdefghijk', parts),
       ).rejects.toBeInstanceOf(VideoProcessingUnavailableException);
-      const lastSaved = videoRepository.save.mock.calls.at(-1)[0] as Video;
-      expect(lastSaved.status).toBe(VideoStatus.DRAFT);
-      expect(lastSaved.upload_id).toBeNull();
+      expect(videoRepository.update).toHaveBeenLastCalledWith(
+        { id: 'video-1', status: VideoStatus.PROCESSING },
+        { status: VideoStatus.DRAFT },
+      );
     });
 
     it('should only re-enqueue when the object was already assembled', async () => {

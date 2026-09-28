@@ -5,7 +5,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Queue } from 'bullmq';
-import { In, LessThan, Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { ChannelsService } from '../channels/channels.service';
 import { isUniqueViolationOn } from '../common/database/pg-errors';
 import {
@@ -155,10 +155,15 @@ export class VideosService {
       throw new VideoNotUploadableException();
     }
 
-    const uploaded = await this.storage.listParts(
-      video.storage_key,
-      video.upload_id,
-    );
+    const uploaded = await this.storage
+      .listParts(video.storage_key, video.upload_id)
+      .catch((err: unknown) => {
+        // The storage already dropped the upload (aborted/expired): nothing to resume.
+        if (err instanceof StorageMultipartException) {
+          throw new VideoNotUploadableException();
+        }
+        throw err;
+      });
     const uploadedNumbers = new Set(uploaded.map((p) => p.partNumber));
     const partCount = this.partCountFor(video.size_bytes);
     const missing = Array.from({ length: partCount }, (_, i) => i + 1).filter(
@@ -195,6 +200,11 @@ export class VideosService {
     // upload_id is null when a previous completion assembled the object but
     // failed to enqueue — only the enqueue is retried in that case.
     if (video.upload_id) {
+      // Every planned part must be listed exactly once: a partial list would
+      // assemble a truncated file that no longer matches size_bytes.
+      if (!this.coversAllParts(parts, this.partCountFor(video.size_bytes))) {
+        throw new InvalidUploadPartsException();
+      }
       try {
         await this.storage.completeMultipartUpload(
           video.storage_key,
@@ -203,25 +213,41 @@ export class VideosService {
         );
       } catch (err) {
         if (err instanceof StorageMultipartException) {
-          throw new InvalidUploadPartsException();
+          // NoSuchUpload: a concurrent completion or the sweeper got there first.
+          throw err.code === 'NoSuchUpload'
+            ? new VideoNotUploadableException()
+            : new InvalidUploadPartsException();
         }
         throw err;
       }
     }
 
+    // Conditional transition: never overwrite a status changed concurrently
+    // (another completion, or the sweeper expiring the draft).
+    const moved = await this.videoRepository.update(
+      { id: video.id, status: VideoStatus.DRAFT },
+      { status: VideoStatus.PROCESSING, upload_id: null },
+    );
+    if (!moved.affected) {
+      throw new VideoNotUploadableException();
+    }
     video.status = VideoStatus.PROCESSING;
     video.upload_id = null;
-    await this.videoRepository.save(video);
 
     try {
+      // A finished job with the same id (e.g. written by an add that reported
+      // failure) would make the add below a silent duplicate no-op.
+      await this.processingQueue.remove(video.id);
       await this.processingQueue.add(
         VIDEO_JOBS.PROCESS,
         { videoId: video.id },
         { jobId: video.id },
       );
     } catch {
-      video.status = VideoStatus.DRAFT;
-      await this.videoRepository.save(video);
+      await this.videoRepository.update(
+        { id: video.id, status: VideoStatus.PROCESSING },
+        { status: VideoStatus.DRAFT },
+      );
       throw new VideoProcessingUnavailableException();
     }
 
@@ -262,11 +288,27 @@ export class VideosService {
     return (update.affected ?? 0) > 0;
   }
 
-  /** draft|processing → failed with the given reason (terminal state). */
+  /** processing → failed with the given reason (terminal state). */
   async markFailed(id: string, reason: VideoFailureReason): Promise<boolean> {
     const update = await this.videoRepository.update(
-      { id, status: In([VideoStatus.DRAFT, VideoStatus.PROCESSING]) },
-      { status: VideoStatus.FAILED, failure_reason: reason, upload_id: null },
+      { id, status: VideoStatus.PROCESSING },
+      { status: VideoStatus.FAILED, failure_reason: reason },
+    );
+    return (update.affected ?? 0) > 0;
+  }
+
+  /**
+   * draft → failed/UPLOAD_EXPIRED, only if it is still a draft (a completion
+   * that won the race keeps its `processing` status).
+   */
+  async expireDraft(id: string): Promise<boolean> {
+    const update = await this.videoRepository.update(
+      { id, status: VideoStatus.DRAFT },
+      {
+        status: VideoStatus.FAILED,
+        failure_reason: VideoFailureReason.UPLOAD_EXPIRED,
+        upload_id: null,
+      },
     );
     return (update.affected ?? 0) > 0;
   }
@@ -316,20 +358,40 @@ export class VideosService {
   ): Promise<UploadPartUrlView[]> {
     const uploadId = video.upload_id as string;
     return Promise.all(
-      partNumbers.map(async (partNumber) => ({
-        part_number: partNumber,
-        url: await this.storage.presignUploadPart(
-          video.storage_key,
-          uploadId,
-          partNumber,
-          this.config.uploadUrlTtlSeconds,
-        ),
-      })),
+      partNumbers.map(async (partNumber) => {
+        const size = this.partSizeFor(video.size_bytes, partNumber);
+        return {
+          part_number: partNumber,
+          size,
+          url: await this.storage.presignUploadPart(
+            video.storage_key,
+            uploadId,
+            partNumber,
+            size,
+            this.config.uploadUrlTtlSeconds,
+          ),
+        };
+      }),
     );
   }
 
   private partCountFor(sizeBytes: number): number {
     return Math.max(1, Math.ceil(sizeBytes / this.config.uploadPartSizeBytes));
+  }
+
+  /** Exact byte size of a part: every part is full except the last one. */
+  private partSizeFor(sizeBytes: number, partNumber: number): number {
+    const partSize = this.config.uploadPartSizeBytes;
+    return Math.min(partSize, sizeBytes - (partNumber - 1) * partSize);
+  }
+
+  private coversAllParts(parts: CompletedPart[], partCount: number): boolean {
+    const numbers = new Set(parts.map((p) => p.partNumber));
+    return (
+      parts.length === partCount &&
+      numbers.size === partCount &&
+      [...numbers].every((n) => n >= 1 && n <= partCount)
+    );
   }
 
   private urlExpiry(): Date {

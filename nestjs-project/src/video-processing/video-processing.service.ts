@@ -45,12 +45,9 @@ export class VideoProcessingService {
       audience: 'internal',
     });
 
-    const probe = await this.media.probe(sourceUrl).catch((err: unknown) => {
-      if (err instanceof InvalidMediaError) {
-        throw new UnrecoverableError(VideoFailureReason.INVALID_MEDIA);
-      }
-      throw err;
-    });
+    const probe = await unrecoverableOnInvalidMedia(
+      this.media.probe(sourceUrl),
+    );
     if (!probe.hasVideoStream) {
       throw new UnrecoverableError(VideoFailureReason.INVALID_MEDIA);
     }
@@ -59,10 +56,12 @@ export class VideoProcessingService {
     const workDir = await mkdtemp(join(tmpdir(), `video-${video.id}-`));
     try {
       const framePath = join(workDir, 'thumbnail.jpg');
-      await this.media.extractFrame(
-        sourceUrl,
-        thumbnailTimestamp(probe.durationSeconds),
-        framePath,
+      await unrecoverableOnInvalidMedia(
+        this.media.extractFrame(
+          sourceUrl,
+          thumbnailTimestamp(probe.durationSeconds),
+          framePath,
+        ),
       );
       await this.storage.putObject(
         thumbnailKey,
@@ -79,5 +78,19 @@ export class VideoProcessingService {
       thumbnailKey,
     });
     this.logger.log(`Video ${video.id} is ready`);
+  }
+}
+
+/** Content FFmpeg cannot decode will never succeed: fail without retries. */
+async function unrecoverableOnInvalidMedia<T>(
+  operation: Promise<T>,
+): Promise<T> {
+  try {
+    return await operation;
+  } catch (err) {
+    if (err instanceof InvalidMediaError) {
+      throw new UnrecoverableError(VideoFailureReason.INVALID_MEDIA);
+    }
+    throw err;
   }
 }

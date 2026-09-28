@@ -31,7 +31,13 @@ describe('StorageService (integration — MinIO)', () => {
     partNumber: number,
     body: Buffer,
   ): Promise<string> {
-    const url = await storage.presignUploadPart(key, uploadId, partNumber, TTL);
+    const url = await storage.presignUploadPart(
+      key,
+      uploadId,
+      partNumber,
+      body.length,
+      TTL,
+    );
     const res = await requestPresigned(url, { method: 'PUT', body });
     expect(res.status).toBe(200);
     return String(res.headers.etag);
@@ -43,7 +49,13 @@ describe('StorageService (integration — MinIO)', () => {
     const part2 = randomBytes(1024);
     const uploadId = await storage.createMultipartUpload(key, 'video/mp4');
 
-    const url = await storage.presignUploadPart(key, uploadId, 1, TTL);
+    const url = await storage.presignUploadPart(
+      key,
+      uploadId,
+      1,
+      FIVE_MIB,
+      TTL,
+    );
     expect(new URL(url).host).toBe(
       new URL(process.env.S3_PUBLIC_ENDPOINT ?? 'http://localhost:9000').host,
     );
@@ -62,6 +74,25 @@ describe('StorageService (integration — MinIO)', () => {
     expect(res.status).toBe(200);
     expect(res.body.length).toBe(part1.length + part2.length);
     expect(res.body.equals(Buffer.concat([part1, part2]))).toBe(true);
+  });
+
+  it('rejects a part whose size differs from the signed Content-Length', async () => {
+    const key = uniqueKey();
+    const uploadId = await storage.createMultipartUpload(key, 'video/mp4');
+    const url = await storage.presignUploadPart(key, uploadId, 1, 1000, TTL);
+
+    const oversized = await requestPresigned(url, {
+      method: 'PUT',
+      body: randomBytes(3000),
+    });
+    const exact = await requestPresigned(url, {
+      method: 'PUT',
+      body: randomBytes(1000),
+    });
+
+    expect(oversized.status).toBe(403);
+    expect(exact.status).toBe(200);
+    await storage.abortMultipartUpload(key, uploadId);
   });
 
   it('lists only the parts already uploaded (resume support)', async () => {

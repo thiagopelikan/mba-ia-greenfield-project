@@ -84,6 +84,9 @@ _Subprojects in scope:_
 
 **Note:** User accepted the recommendation, noting that this is an MBA demo project and 10GB uploads will not occur in practice; the strategy is still implemented and tested at the contract level (size limit, part plan) with small real files.
 
+**Revisions:**
+- 2026-09-28 — Each presigned part URL signs its exact `Content-Length` (every part = part size, last = remainder, exposed as `parts[].size`), and completion requires the full planned part list. Rationale: reanalysis showed an unbound part URL accepted any body size (verified against MinIO), so the 10 GiB limit and `size_bytes` could be bypassed.
+
 ---
 
 ## TD-03: S3 Client Library
@@ -138,6 +141,9 @@ _Subprojects in scope:_
 **Recommendation:** Option A (single private bucket, per-video prefix, presigned access) — it keeps a single access model where the API decides every read, which Phase 03 needs for drafts and Phase 04/05 need for visibility, with collision-free keys derived from the video UUID; stable CDN URLs for thumbnails (Option B) can be introduced later without migrating originals.
 
 **Decision:** A (Single private bucket, per-video key prefix, presigned access)
+
+**Revisions:**
+- 2026-09-28 — `minio-init` uses the `minio-client:latest-dev` image to wait with `mc ready` before creating the bucket, and `nestjs-api`/`video-worker` wait for it to complete. Rationale: on a cold start the shell-less image relied on restart-on-failure, racing Compose's `service_completed_successfully` dependency.
 
 ---
 
@@ -201,6 +207,9 @@ _Subprojects in scope:_
 
 **Decision:** A (Spawn ffprobe/ffmpeg via execFile reading a presigned URL)
 **Libraries:** ffmpeg (Debian package in the Docker image — not an npm dependency)
+
+**Revisions:**
+- 2026-09-28 — Streams flagged `disposition.attached_pic` (cover art) do not count as video, and an ffmpeg decode failure is also classified `INVALID_MEDIA`. Rationale: audio files with artwork were accepted as videos; undecodable frames were retried 3× as transient errors.
 
 ---
 
@@ -347,6 +356,9 @@ _Subprojects in scope:_
 
 **Decision:** A (Deterministic job id + idempotent worker)
 
+**Revisions:**
+- 2026-09-28 — The `draft → processing` transition is a conditional UPDATE, and any finished job with the same id is removed before `add`. Rationale: a lost-response enqueue could leave a completed job that made the retry a silent duplicate (video stuck in `processing`); concurrent completions/sweeps could overwrite each other.
+
 ---
 
 ## TD-12: Cleanup of Abandoned Uploads and Stale Drafts
@@ -377,6 +389,9 @@ _Subprojects in scope:_
 **Recommendation:** Option B (scheduled sweeper job) — it keeps the `draft` status truthful and reclaims orphaned parts through the queue and worker that this phase already builds, independent of per-environment bucket configuration; a 24h upload window is generous for a 10GB file on any realistic connection, and storage-level lifecycle rules can still be added in production as a second safety net.
 
 **Decision:** B (Scheduled sweeper queue job)
+
+**Revisions:**
+- 2026-09-28 — The sweeper aborts the multipart first and then expires only rows still in `draft` (conditional UPDATE), deletes the assembled original of drafts never enqueued, and isolates per-draft failures (job fails afterwards for a retry). Rationale: a completion racing the sweep could be marked `UPLOAD_EXPIRED`; one storage error stopped the whole sweep.
 
 ---
 

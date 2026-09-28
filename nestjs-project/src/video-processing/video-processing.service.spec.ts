@@ -106,6 +106,16 @@ describe('VideoProcessingService', () => {
     );
   });
 
+  it('should raise UnrecoverableError when ffmpeg cannot decode a frame', async () => {
+    media.extractFrame.mockRejectedValue(
+      new InvalidMediaError('Output file does not contain any stream'),
+    );
+
+    await expect(service.process('video-1')).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+  });
+
   it('should let transient errors propagate for retry', async () => {
     media.extractFrame.mockRejectedValue(new Error('connection reset'));
 

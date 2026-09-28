@@ -14,8 +14,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
-      minio:
-        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
 
   # Video worker (FFmpeg): same image and code as the API, separate process
   # without HTTP that consumes the "video-processing" BullMQ queue. Waits until
@@ -76,17 +76,20 @@ services:
     volumes:
       - minio-data:/data
 
-  # One-shot bucket bootstrap (image has no shell: retries via restart policy
-  # until MinIO accepts connections).
+  # One-shot bucket bootstrap: waits until MinIO answers, then creates the
+  # bucket (the -dev image variant ships a shell).
   minio-init:
-    image: cgr.dev/chainguard/minio-client:latest
-    command: ["mb", "--ignore-existing", "local/${S3_BUCKET:-streamtube-videos}"]
+    image: cgr.dev/chainguard/minio-client:latest-dev
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        until mc ready local; do echo 'minio-init: waiting for minio...'; sleep 1; done;
+        mc mb --ignore-existing local/${S3_BUCKET:-streamtube-videos}
     environment:
       - MC_HOST_local=http://${S3_ACCESS_KEY:-streamtube}:${S3_SECRET_KEY:-streamtube-secret}@minio:9000
     depends_on:
       minio:
         condition: service_started
-    restart: on-failure
 
   # Queue broker for BullMQ (jobs must never be evicted).
   redis:

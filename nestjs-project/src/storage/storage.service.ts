@@ -4,6 +4,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   ListPartsCommand,
   PutObjectCommand,
@@ -61,10 +62,15 @@ export class StorageService {
     return UploadId;
   }
 
+  /**
+   * `contentLength` is signed into the URL (`content-length` becomes a signed
+   * header), so the storage rejects a part whose body has any other size.
+   */
   async presignUploadPart(
     key: string,
     uploadId: string,
     partNumber: number,
+    contentLength: number,
     ttlSeconds: number,
   ): Promise<string> {
     return getSignedUrl(
@@ -74,6 +80,7 @@ export class StorageService {
         Key: key,
         UploadId: uploadId,
         PartNumber: partNumber,
+        ContentLength: contentLength,
       }),
       { expiresIn: ttlSeconds },
     );
@@ -152,6 +159,13 @@ export class StorageService {
         Body: body,
         ContentType: contentType,
       }),
+    );
+  }
+
+  /** Idempotent: deleting a missing key succeeds (S3 semantics). */
+  async deleteObject(key: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
     );
   }
 
