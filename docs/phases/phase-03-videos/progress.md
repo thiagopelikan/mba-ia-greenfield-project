@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 5/13 completed
+**SIs:** 6/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -43,9 +43,10 @@
   - Enqueue failure after the multipart is assembled reverts to draft with upload_id = null; a retried complete skips storage and only re-enqueues (TD-11 retry path). getUploadSession on such a draft returns VIDEO_NOT_UPLOADABLE (nothing left to upload).
 
 ### SI-03.6 — Acesso de reprodução: consulta por slug, stream, download e auth opcional
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 20 new passing (videos.service.spec.ts: +15 → 29, jwt-auth.guard.spec.ts: +2 → 7); src/videos + guard 50/50
+- **Observations:**
+  - JwtAuthGuard now verifies an optional Bearer token on @Public() routes (attaches request.user when valid, ignores invalid tokens); protected routes are unchanged.
 
 ### SI-03.7 — Endpoints de vídeos (VideosController, DTOs e OpenAPI)
 - **Status:** pending

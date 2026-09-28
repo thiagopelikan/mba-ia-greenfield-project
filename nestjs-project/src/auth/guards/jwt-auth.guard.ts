@@ -22,12 +22,17 @@ export class JwtAuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (isPublic) return true;
-
     const request = context
       .switchToHttp()
       .getRequest<{ headers: Record<string, string>; user: unknown }>();
     const authHeader = request.headers?.authorization;
+
+    if (isPublic) {
+      // Optional auth: a valid token on a public route identifies the caller
+      // (e.g. a video owner); a missing or invalid token keeps the route public.
+      await this.attachUserIfValid(request, authHeader);
+      return true;
+    }
 
     if (!authHeader || !authHeader.startsWith(BEARER_PREFIX)) {
       throw new UnauthorizedException();
@@ -41,6 +46,20 @@ export class JwtAuthGuard implements CanActivate {
       return true;
     } catch {
       throw new UnauthorizedException();
+    }
+  }
+
+  private async attachUserIfValid(
+    request: { user: unknown },
+    authHeader: string | undefined,
+  ): Promise<void> {
+    if (!authHeader?.startsWith(BEARER_PREFIX)) return;
+    try {
+      request.user = await this.jwtService.verifyAsync<JwtPayload>(
+        authHeader.slice(BEARER_PREFIX.length),
+      );
+    } catch {
+      // Invalid token on a public route: proceed anonymously.
     }
   }
 }

@@ -12,6 +12,7 @@ import {
   InvalidUploadPartsException,
   VideoFileTooLargeException,
   VideoNotFoundException,
+  VideoNotReadyException,
   VideoNotUploadableException,
   VideoProcessingUnavailableException,
 } from '../common/exceptions/domain.exception';
@@ -97,7 +98,7 @@ export class VideosService {
     const partCount = this.partCountFor(video.size_bytes);
     const partNumbers = Array.from({ length: partCount }, (_, i) => i + 1);
     return {
-      video: this.toView(video),
+      video: await this.toView(video),
       upload: {
         part_size: this.config.uploadPartSizeBytes,
         part_count: partCount,
@@ -105,6 +106,35 @@ export class VideosService {
         expires_at: this.urlExpiry(),
       },
     };
+  }
+
+  /**
+   * Visibility rule for phase 03: `ready` videos are public by link; any other
+   * status is visible only to the owner (everyone else gets 404).
+   */
+  async findForViewer(
+    slug: string,
+    viewerUserId: string | undefined,
+  ): Promise<VideoView> {
+    return this.toView(await this.findVisible(slug, viewerUserId));
+  }
+
+  /** Short-lived presigned URL for the original file (storage serves ranges). */
+  async getPlaybackUrl(
+    slug: string,
+    viewerUserId: string | undefined,
+    mode: 'stream' | 'download',
+  ): Promise<string> {
+    const video = await this.findVisible(slug, viewerUserId);
+    if (video.status !== VideoStatus.READY) {
+      throw new VideoNotReadyException();
+    }
+    return this.storage.presignGetObject(video.storage_key, {
+      ttlSeconds: this.config.playbackUrlTtlSeconds,
+      audience: 'public',
+      downloadFileName:
+        mode === 'download' ? video.original_file_name : undefined,
+    });
   }
 
   /**
@@ -193,6 +223,21 @@ export class VideosService {
     return this.toView(video);
   }
 
+  private async findVisible(
+    slug: string,
+    viewerUserId: string | undefined,
+  ): Promise<Video> {
+    const video = await this.videoRepository.findOne({
+      where: { slug },
+      relations: { channel: true },
+    });
+    const isOwner = !!video && video.channel.user_id === viewerUserId;
+    if (!video || (video.status !== VideoStatus.READY && !isOwner)) {
+      throw new VideoNotFoundException();
+    }
+    return video;
+  }
+
   private async findOwnedBySlug(userId: string, slug: string): Promise<Video> {
     const video = await this.videoRepository.findOne({
       where: { slug },
@@ -248,7 +293,13 @@ export class VideosService {
     return (raw || input.fileName).slice(0, TITLE_MAX_LENGTH);
   }
 
-  private toView(video: Video): VideoView {
-    return toVideoView(video, null);
+  private async toView(video: Video): Promise<VideoView> {
+    const thumbnailUrl = video.thumbnail_key
+      ? await this.storage.presignGetObject(video.thumbnail_key, {
+          ttlSeconds: this.config.playbackUrlTtlSeconds,
+          audience: 'public',
+        })
+      : null;
+    return toVideoView(video, thumbnailUrl);
   }
 }

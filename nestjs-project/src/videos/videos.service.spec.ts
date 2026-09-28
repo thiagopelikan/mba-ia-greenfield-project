@@ -3,6 +3,7 @@ import {
   InvalidUploadPartsException,
   VideoFileTooLargeException,
   VideoNotFoundException,
+  VideoNotReadyException,
   VideoNotUploadableException,
   VideoProcessingUnavailableException,
 } from '../common/exceptions/domain.exception';
@@ -41,6 +42,7 @@ describe('VideosService', () => {
     abortMultipartUpload: jest.Mock;
     listParts: jest.Mock;
     completeMultipartUpload: jest.Mock;
+    presignGetObject: jest.Mock;
   };
 
   beforeEach(() => {
@@ -69,6 +71,7 @@ describe('VideosService', () => {
       abortMultipartUpload: jest.fn().mockResolvedValue(undefined),
       listParts: jest.fn().mockResolvedValue([]),
       completeMultipartUpload: jest.fn().mockResolvedValue(undefined),
+      presignGetObject: jest.fn().mockResolvedValue('https://storage/signed'),
     };
     service = new VideosService(
       videoRepository as any,
@@ -258,6 +261,109 @@ describe('VideosService', () => {
       await expect(
         service.completeUpload('owner', 'abcdefghijk', parts),
       ).rejects.toBeInstanceOf(VideoNotUploadableException);
+    });
+  });
+
+  describe('findForViewer', () => {
+    it.each([
+      [VideoStatus.READY, undefined, true],
+      [VideoStatus.READY, 'someone', true],
+      [VideoStatus.READY, 'owner', true],
+      [VideoStatus.DRAFT, undefined, false],
+      [VideoStatus.PROCESSING, 'someone', false],
+      [VideoStatus.FAILED, 'someone', false],
+      [VideoStatus.PROCESSING, 'owner', true],
+      [VideoStatus.FAILED, 'owner', true],
+    ])(
+      'status %s viewed by %s → visible: %s',
+      async (status, viewer, visible) => {
+        videoRepository.findOne.mockResolvedValue(ownedVideo({ status }));
+
+        const attempt = service.findForViewer('abcdefghijk', viewer);
+
+        if (visible) {
+          await expect(attempt).resolves.toMatchObject({ status });
+        } else {
+          await expect(attempt).rejects.toBeInstanceOf(VideoNotFoundException);
+        }
+      },
+    );
+
+    it('should presign the thumbnail when the video has one', async () => {
+      videoRepository.findOne.mockResolvedValue(
+        ownedVideo({
+          status: VideoStatus.READY,
+          thumbnail_key: 'videos/video-1/thumbnail.jpg',
+        }),
+      );
+
+      const view = await service.findForViewer('abcdefghijk', undefined);
+
+      expect(view.thumbnail_url).toBe('https://storage/signed');
+      expect(storage.presignGetObject).toHaveBeenCalledWith(
+        'videos/video-1/thumbnail.jpg',
+        { ttlSeconds: 3600, audience: 'public' },
+      );
+    });
+
+    it('should report not found for unknown slugs', async () => {
+      videoRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.findForViewer('missing0000', undefined),
+      ).rejects.toBeInstanceOf(VideoNotFoundException);
+    });
+  });
+
+  describe('getPlaybackUrl', () => {
+    it('should sign a public stream URL for ready videos', async () => {
+      videoRepository.findOne.mockResolvedValue(
+        ownedVideo({ status: VideoStatus.READY }),
+      );
+
+      const url = await service.getPlaybackUrl(
+        'abcdefghijk',
+        undefined,
+        'stream',
+      );
+
+      expect(url).toBe('https://storage/signed');
+      expect(storage.presignGetObject).toHaveBeenCalledWith(
+        'videos/video-1/original',
+        { ttlSeconds: 3600, audience: 'public', downloadFileName: undefined },
+      );
+    });
+
+    it('should force a download with the original file name', async () => {
+      videoRepository.findOne.mockResolvedValue(
+        ownedVideo({
+          status: VideoStatus.READY,
+          original_file_name: 'Trip.mp4',
+        }),
+      );
+
+      await service.getPlaybackUrl('abcdefghijk', undefined, 'download');
+
+      expect(storage.presignGetObject).toHaveBeenCalledWith(
+        'videos/video-1/original',
+        expect.objectContaining({ downloadFileName: 'Trip.mp4' }),
+      );
+    });
+
+    it('should tell the owner that an unfinished video is not ready', async () => {
+      videoRepository.findOne.mockResolvedValue(ownedVideo());
+
+      await expect(
+        service.getPlaybackUrl('abcdefghijk', 'owner', 'stream'),
+      ).rejects.toBeInstanceOf(VideoNotReadyException);
+    });
+
+    it('should hide unfinished videos from non-owners', async () => {
+      videoRepository.findOne.mockResolvedValue(ownedVideo());
+
+      await expect(
+        service.getPlaybackUrl('abcdefghijk', 'someone', 'stream'),
+      ).rejects.toBeInstanceOf(VideoNotFoundException);
     });
   });
 });
