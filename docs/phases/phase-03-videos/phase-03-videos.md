@@ -3,8 +3,8 @@ kind: phase
 name: phase-03-videos
 test_specs_aware: true
 sources_mtime:
-  docs/phases/phase-03-videos/context.md: "2026-09-28T18:12:10-03:00"
-  docs/phases/phase-03-videos/library-refs.md: "2026-09-28T17:21:21-03:00"
+  docs/phases/phase-03-videos/context.md: "2026-09-28T18:22:45-03:00"
+  docs/phases/phase-03-videos/library-refs.md: "2026-09-28T18:22:45-03:00"
   docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T18:19:01-03:00"
   docs/decisions/technical-decisions-openapi-docs-nestjs.md: "2026-09-28T15:46:56-03:00"
   docs/decisions/technical-decisions-next-frontend-openapi-typing.md: "2026-09-28T15:46:56-03:00"

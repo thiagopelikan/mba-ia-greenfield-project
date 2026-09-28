@@ -21,7 +21,7 @@ libs:
     context7_id: "/aws/aws-sdk-js-v3"
     fetched_at: "2026-09-28T17:40:00-03:00"
 sources_mtime:
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T17:20:35-03:00"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T18:19:01-03:00"
 ---
 
 # Library references — phase-03-videos

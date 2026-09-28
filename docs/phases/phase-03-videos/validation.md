@@ -4,8 +4,8 @@ name: phase-03-videos
 status: clean
 issue_count: 0
 sources_mtime:
-  docs/phases/phase-03-videos/context.md: "2026-09-28T18:12:10-03:00"
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T17:58:54-03:00"
+  docs/phases/phase-03-videos/context.md: "2026-09-28T18:22:45-03:00"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T18:19:01-03:00"
 issues:
   - id: IC-1
     status: resolved
@@ -131,3 +131,4 @@ _None._
 - **OQ-12** _(resolved_by phase-03-videos/TD-12)_ — TD-12 pending — Cleanup of Abandoned Uploads and Stale Drafts. Decision: B (Scheduled sweeper queue job).
 
 _Revalidated 2026-09-28 against the context.md regenerated with the pipeline sub-agents: all 7 checks empty; status remains clean._
+_Revalidated 2026-09-28 after the reanalysis Revisions (TD-02, TD-04, TD-06, TD-11, TD-12 — same option letters, no new findings); status remains clean._
