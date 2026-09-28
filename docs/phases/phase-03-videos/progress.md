@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 7/13 completed
+**SIs:** 8/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -58,9 +58,10 @@
   - Shared test/e2e-helpers.ts (createE2eApp mirroring main.ts + registerConfirmAndLogin).
 
 ### SI-03.8 — Ferramentas de mídia: ffprobe e ffmpeg
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 6/6 passing (media-tools.service.spec.ts: 3, media-tools.service.integration-spec.ts: 3)
+- **Observations:**
+  - probe() throws InvalidMediaError only when ffprobe/ffmpeg stderr says the content itself is invalid (e.g. 'Invalid data found when processing input'); other failures (network, timeout) propagate as retryable errors.
 
 ### SI-03.9 — Processamento automático do vídeo (job process-video)
 - **Status:** pending
