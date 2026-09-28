@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 3/13 completed
+**SIs:** 4/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -26,9 +26,13 @@
   - Migration generated via CLI: 1790627695274-CreateVideos.ts.
 
 ### SI-03.4 — Pré-cadastro do vídeo e início do upload direto
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 11/11 passing (video-slug.util.spec.ts: 2, videos.service.spec.ts: 6, videos.service.integration-spec.ts: 3)
+- **Observations:**
+  - Slug retry does not need a transaction/savepoint: the draft insert is a single statement outside a transaction, so a unique violation on slug is retried with a new slug (shared helper src/common/database/pg-errors.ts).
+  - The multipart upload is created before the draft insert (the id is generated in-app); if the insert fails the multipart is aborted (compensation).
+  - Added ChannelsService.findByUserId so VideosService resolves the owner channel through the channels module (SRP).
+  - Test helper src/test/video-test-helpers.ts: explicit entity array + retryAttempts: 0 for Nest test modules (autoLoadEntities alone misses User via Channel relation and TypeORM retries silently until timeout).
 
 ### SI-03.5 — Fila de processamento, retomada e conclusão do upload
 - **Status:** pending
