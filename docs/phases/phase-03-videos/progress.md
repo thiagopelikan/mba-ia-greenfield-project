@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 9/13 completed
+**SIs:** 10/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -71,9 +71,13 @@
   - Processor concurrency: 2 jobs per worker process.
 
 ### SI-03.10 — Worker de vídeo: entrypoint, WorkerModule e serviço video-worker
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 2/2 passing (worker.module.integration-spec.ts); E2E regression 62/62
+- **Observations:**
+  - Test named worker.module.integration-spec.ts (not .spec.ts as planned): compiling WorkerModule opens real DB/Redis connections, which the project's test-type rules classify as integration.
+  - Extracted RootConfigModule (ConfigModule.forRoot + Joi) and DatabaseModule (TypeOrmModule.forRootAsync) so AppModule and WorkerModule share one configuration instead of duplicating it.
+  - WorkerModule imports UsersModule so the User entity (Channel ↔ User relation) is registered under autoLoadEntities.
+  - start:worker:dev uses node --watch + ts-node/register/transpile-only (nest start --watch would share and delete dist/ with the API's start:dev). Verified: docker compose stop video-worker completes in ~1s.
 
 ### SI-03.11 — Limpeza de uploads abandonados (job sweep-expired-uploads)
 - **Status:** pending

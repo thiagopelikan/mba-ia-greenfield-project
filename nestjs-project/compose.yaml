@@ -17,6 +17,31 @@ services:
       minio:
         condition: service_started
 
+  # Video worker (FFmpeg): same image and code as the API, separate process
+  # without HTTP that consumes the "video-processing" BullMQ queue. Waits until
+  # dependencies are installed (`docker compose exec nestjs-api npm install`).
+  video-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - .:/home/node/app
+    command:
+      - sh
+      - -c
+      - >-
+        until [ -x node_modules/.bin/ts-node ]; do
+        echo 'video-worker: waiting for npm install...'; sleep 5; done;
+        exec npm run start:worker:dev
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   db:
     image: postgres:17
     ports:
