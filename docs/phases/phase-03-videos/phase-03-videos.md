@@ -3,9 +3,9 @@ kind: phase
 name: phase-03-videos
 test_specs_aware: true
 sources_mtime:
-  docs/phases/phase-03-videos/context.md: "2026-09-28T17:21:21-03:00"
+  docs/phases/phase-03-videos/context.md: "2026-09-28T18:12:10-03:00"
   docs/phases/phase-03-videos/library-refs.md: "2026-09-28T17:21:21-03:00"
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T17:20:35-03:00"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-09-28T18:19:01-03:00"
   docs/decisions/technical-decisions-openapi-docs-nestjs.md: "2026-09-28T15:46:56-03:00"
   docs/decisions/technical-decisions-next-frontend-openapi-typing.md: "2026-09-28T15:46:56-03:00"
   docs/decisions/technical-decisions-next-frontend-config-base.md: "2026-09-28T15:46:56-03:00"
@@ -386,6 +386,86 @@ Entregar o upload de vídeos de até 10GB direto para o object storage (MinIO/S3
 
 ---
 
+### SI-03.14 (amendment of SI-03.2, SI-03.4, SI-03.5) — Integridade do upload: tamanho assinado por parte, lista completa e transições condicionais
+
+**Description:** Fecha o bypass do limite de 10 GiB e as corridas da conclusão encontradas na reanálise (Revisions de `phase-03-videos/TD-02` e `phase-03-videos/TD-11`, 2026-09-28).
+
+**Technical actions:**
+
+1. `StorageService.presignUploadPart(key, uploadId, partNumber, contentLength, ttl)` assina `ContentLength` (header `content-length` entra em `X-Amz-SignedHeaders`); `VideosService` calcula o tamanho exato de cada parte (a última recebe o resto) e o expõe em `parts[].size` (per `phase-03-videos/TD-02`).
+2. `completeUpload` exige a lista completa de partes planejadas (sem faltas, duplicatas ou números fora do plano) → senão `INVALID_UPLOAD_PARTS`; `NoSuchUpload` do storage vira `VIDEO_NOT_UPLOADABLE`; `getUploadSession` idem quando o storage já descartou o upload.
+3. Transição `draft → processing` via UPDATE condicional (`WHERE status = 'draft'`; 0 linhas → `VIDEO_NOT_UPLOADABLE`); antes do `add`, remove job finalizado com o mesmo id; revert condicional `processing → draft` se a publicação falhar (per `phase-03-videos/TD-11`).
+
+**Tests:**
+
+| Artifact | Layer | Test file |
+|----------|-------|-----------|
+| `StorageService.presignUploadPart` | Integration (MinIO): corpo maior que o `Content-Length` assinado → 403 | `src/storage/storage.service.integration-spec.ts` |
+| `VideosService` | Unit: tamanhos por parte, lista incompleta/duplicada/fora do plano, `NoSuchUpload`, corrida no UPDATE condicional, remoção do job antes do `add` | `src/videos/videos.service.spec.ts` |
+| Endpoints de vídeo | E2E: URL de parte rejeita corpo maior; conclusão sem todas as partes → 400 (cenários 2.4 e 2.5 de `nestjs-project/specs/videos.plan.md`) | `test/videos.e2e-spec.ts` |
+
+**Dependencies:** SI-03.12 — corrige comportamento já entregue e coberto pelo pipeline E2E.
+
+**Acceptance criteria:**
+
+- `POST /videos` retorna cada parte com `size`; a soma dos `size` é igual a `file_size`.
+- `PUT` numa URL de parte com corpo de tamanho diferente de `size` é rejeitado pelo storage com `403`.
+- `POST /videos/:slug/upload/complete` sem todas as partes planejadas retorna `400` com `error: "INVALID_UPLOAD_PARTS"`.
+- `GET /videos/:slug/upload` de um rascunho cujo upload não existe mais no storage retorna `409` `VIDEO_NOT_UPLOADABLE`.
+- Um vídeo que mudou de status durante a conclusão não é enfileirado e a requisição retorna `409` `VIDEO_NOT_UPLOADABLE`.
+
+---
+
+### SI-03.15 (amendment of SI-03.8, SI-03.9, SI-03.11) — Robustez do processamento e do sweeper
+
+**Description:** Corrige classificação de mídia e corridas/isolamento do sweeper apontados na reanálise (Revisions de `phase-03-videos/TD-06` e `phase-03-videos/TD-12`, 2026-09-28).
+
+**Technical actions:**
+
+1. `MediaToolsService`: stream com `disposition.attached_pic` (capa de áudio) não conta como vídeo; `VideoProcessingService` classifica falha de decodificação no `extractFrame` como `INVALID_MEDIA` (UnrecoverableError), além do `probe` (per `phase-03-videos/TD-06`).
+2. `VideosService.expireDraft(id)` (UPDATE condicional `WHERE status = 'draft'`) substitui o uso de `markFailed` pelo sweeper; `markFailed` passa a valer só para `processing`.
+3. `UploadSweeperService.sweep()`: aborta o multipart antes de expirar; rascunho sem `upload_id` (objeto montado, enfileiramento falhou) tem o original apagado (`StorageService.deleteObject`); falha de um rascunho não interrompe os demais e o job falha no fim para ser re-tentado (per `phase-03-videos/TD-12`).
+
+**Tests:**
+
+| Artifact | Layer | Test file |
+|----------|-------|-----------|
+| `MediaToolsService` | Integration (FFmpeg): `.m4a` com capa não tem stream de vídeo | `src/video-processing/media-tools.service.integration-spec.ts` |
+| `VideoProcessingService` | Unit: falha de decodificação no frame → `UnrecoverableError` | `src/video-processing/video-processing.service.spec.ts` |
+| `UploadSweeperService` | Unit: abort antes de expirar, conclusão vencedora preservada, original apagado, isolamento de falhas | `src/video-processing/upload-sweeper.service.spec.ts` |
+| `UploadSweeperService` | Integration (DB + MinIO): original montado de rascunho expirado é removido do bucket | `src/video-processing/upload-sweeper.service.integration-spec.ts` |
+
+**Dependencies:** SI-03.14 — mesma rodada de correções; independe funcionalmente.
+
+**Acceptance criteria:**
+
+- Um áudio com capa enviado como `video/mp4` termina `failed` com `failure_reason = INVALID_MEDIA`.
+- Um rascunho concluído enquanto o sweeper roda permanece em `processing` (não vira `UPLOAD_EXPIRED`).
+- Rascunho expirado cujo objeto já estava montado não deixa `videos/{id}/original` no bucket.
+- Erro de storage em um rascunho não impede a expiração dos demais na mesma varredura.
+
+---
+
+### SI-03.16 (amendment of SI-03.1) — Subida a frio do Compose e `.env.example` válido
+
+**Description:** Garante que `cp .env.example .env && docker compose up -d` funcione numa máquina limpa (Revision de `phase-03-videos/TD-04`, 2026-09-28).
+
+**Technical actions:**
+
+1. `minio-init` usa `cgr.dev/chainguard/minio-client:latest-dev` (com shell): `until mc ready local; do sleep 1; done; mc mb --ignore-existing ...`; `nestjs-api` passa a depender de `minio-init` concluído com sucesso (per `phase-03-videos/TD-04`).
+2. `.env.example`: `MAIL_FROM` entre aspas simples — o valor com `<...>` quebrava o parser do Compose (pré-existente, exposto porque o Compose agora interpola variáveis do `.env`).
+
+**Tests:** _(empty — Infra; verificado por subida a frio com volume do MinIO vazio e `docker compose config` com o `.env.example`)_
+
+**Dependencies:** none
+
+**Acceptance criteria:**
+
+- Com volume do MinIO vazio, `docker compose up -d` termina com `minio-init` `Exited (0)` e `nestjs-api`/`video-worker` iniciados só depois do bucket existir.
+- `docker compose config` com um `.env` copiado de `.env.example` não gera erro de parse.
+
+---
+
 ## Technical Specifications
 
 ### Data Model
@@ -461,7 +541,7 @@ Todas as respostas de erro usam o envelope herdado `{ statusCode, error, message
 - created_at: string (ISO-8601)
 - updated_at: string (ISO-8601)
 
-**`UploadPartUrl`:** `{ part_number: number, url: string }` — URL pré-assinada de `UploadPart` assinada para `S3_PUBLIC_ENDPOINT` (per `phase-03-videos/TD-02`, `phase-03-videos/TD-04`).
+**`UploadPartUrl`:** `{ part_number: number, size: number, url: string }` — URL pré-assinada de `UploadPart` assinada para `S3_PUBLIC_ENDPOINT` com `Content-Length` = `size` assinado (partes cheias de `part_size`, a última com o resto); o storage rejeita (403) corpo de outro tamanho (per `phase-03-videos/TD-02`, `phase-03-videos/TD-04`; amended by SI-03.14).
 
 #### POST /videos (SI-03.7)
 
@@ -518,16 +598,16 @@ Conclui o multipart (`CompleteMultipartUpload`), muda o status para `processing`
 - Content-Type: application/json
 
 **Request body:**
-- parts: `{ part_number: integer ≥ 1, etag: string }[]`, required — não vazio, uma entrada por parte enviada
+- parts: `{ part_number: integer ≥ 1, etag: string }[]`, required — exatamente uma entrada por parte planejada (1..`part_count`) (amended by SI-03.14)
 
 **Response 202:** `VideoResponse` (status `processing`)
 
 **Error responses:**
 - 400 validation error: body inválido
-- 400 INVALID_UPLOAD_PARTS: storage rejeitou a lista de partes (ETag/partNumber inválido ou parte faltando)
+- 400 INVALID_UPLOAD_PARTS: lista de partes incompleta/duplicada/fora do plano, ou storage rejeitou a lista (ETag/partNumber inválido)
 - 401 (guard JWT): token ausente ou inválido
 - 404 VIDEO_NOT_FOUND: slug inexistente ou vídeo de outro canal
-- 409 VIDEO_NOT_UPLOADABLE: vídeo não está em `draft`
+- 409 VIDEO_NOT_UPLOADABLE: vídeo não está em `draft`, mudou de status durante a conclusão, ou o upload não existe mais no storage
 - 503 VIDEO_PROCESSING_UNAVAILABLE: falha ao publicar o job; status revertido para `draft` (per `phase-03-videos/TD-11`)
 
 ---
@@ -607,8 +687,8 @@ Formato herdado de `phase-02-auth/TD-07` (`DomainException` → `DomainException
 |-----------|------|---------|
 | VIDEO_FILE_TOO_LARGE | 400 | `POST /videos` com `file_size` > `VIDEO_MAX_UPLOAD_BYTES` (10 GiB) |
 | VIDEO_NOT_FOUND | 404 | slug inexistente; vídeo de outro canal em rotas de dono; vídeo não-`ready` para quem não é dono |
-| VIDEO_NOT_UPLOADABLE | 409 | retomar/concluir upload de vídeo que não está em `draft` |
-| INVALID_UPLOAD_PARTS | 400 | `CompleteMultipartUpload` rejeitado pelo storage (`InvalidPart`, `InvalidPartOrder`, `EntityTooSmall`, `NoSuchUpload`) |
+| VIDEO_NOT_UPLOADABLE | 409 | retomar/concluir upload de vídeo que não está em `draft` (inclusive por corrida) ou cujo upload o storage já descartou |
+| INVALID_UPLOAD_PARTS | 400 | lista de partes diferente do plano, ou `CompleteMultipartUpload` rejeitado pelo storage (`InvalidPart`, `InvalidPartOrder`, `EntityTooSmall`) |
 | VIDEO_PROCESSING_UNAVAILABLE | 503 | falha ao publicar o job na fila ao concluir upload |
 | VIDEO_NOT_READY | 409 | dono pede stream/download de vídeo que não está `ready` |
 
@@ -642,7 +722,7 @@ Fila BullMQ `video-processing` no serviço Redis do Compose (per `phase-03-video
 **Producer:** job scheduler `sweep-expired-uploads` (`queue.upsertJobScheduler(..., { every: 3600000 })`) registrado pelo `video-worker` ao iniciar (per `phase-03-videos/TD-12`)
 **Consumer:** `VideoProcessingProcessor` → `UploadSweeperService.sweep()`
 **Trigger:** a cada 1 hora
-**Delivery semantics:** at-least-once; idempotente — só afeta vídeos `draft` com `created_at` anterior a `VIDEO_UPLOAD_WINDOW_HOURS` (24h): chama `AbortMultipartUpload` (ignorando `NoSuchUpload`) e marca `failed`/`UPLOAD_EXPIRED`.
+**Delivery semantics:** at-least-once; idempotente — só afeta vídeos `draft` com `created_at` anterior a `VIDEO_UPLOAD_WINDOW_HOURS` (24h): chama `AbortMultipartUpload` (ignorando `NoSuchUpload`) e então marca `failed`/`UPLOAD_EXPIRED` só se ainda for `draft`; rascunho sem `upload_id` tem o original apagado; falha de um rascunho não interrompe os demais e faz o job falhar para re-tentativa (amended by SI-03.15).
 
 ### Configuration (env)
 
@@ -684,7 +764,16 @@ SI-03.1 (root — infra, libs, config)
 └── SI-03.3 — depends on SI-03.1 (entidade + migration)
 ```
 
-Ordem de execução (topológica): SI-03.1 → SI-03.2 → SI-03.3 → SI-03.4 → SI-03.5 → SI-03.6 → SI-03.7 → SI-03.8 → SI-03.9 → SI-03.10 → SI-03.11 → SI-03.12 → SI-03.13.
+Amendments (append-mode, 2026-09-28):
+
+```
+SI-03.12
+├── SI-03.14 — amendment of SI-03.2/03.4/03.5 (integridade do upload)
+│   └── SI-03.15 — amendment of SI-03.8/03.9/03.11 (processamento e sweeper)
+SI-03.16 (root) — amendment of SI-03.1 (subida a frio do Compose)
+```
+
+Ordem de execução (topológica): SI-03.1 → SI-03.2 → SI-03.3 → SI-03.4 → SI-03.5 → SI-03.6 → SI-03.7 → SI-03.8 → SI-03.9 → SI-03.10 → SI-03.11 → SI-03.12 → SI-03.13 → SI-03.14 → SI-03.15 → SI-03.16.
 
 ---
 
@@ -703,6 +792,9 @@ Ordem de execução (topológica): SI-03.1 → SI-03.2 → SI-03.3 → SI-03.4 �
 - [x] SI-03.11 — Limpeza de uploads abandonados (job sweep-expired-uploads)
 - [x] SI-03.12 — Fluxo completo upload → processamento → streaming (infra real)
 - [x] SI-03.13 — Documentação de IA e de testes atualizada
+- [x] SI-03.14 (amendment) — Integridade do upload: tamanho assinado por parte, lista completa e transições condicionais
+- [x] SI-03.15 (amendment) — Robustez do processamento e do sweeper
+- [x] SI-03.16 (amendment) — Subida a frio do Compose e `.env.example` válido
 
 **Entregáveis da fase (project-plan):**
 

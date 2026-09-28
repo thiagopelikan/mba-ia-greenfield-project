@@ -14,7 +14,7 @@ Then verify each infrastructure service is actually ready to accept connections 
 
 - **PostgreSQL:** `docker compose exec db pg_isready -U streamtube` — expect `accepting connections`
 - **Redis (queue):** `docker compose exec redis redis-cli ping` — expect `PONG`
-- **MinIO (object storage):** `docker compose exec nestjs-api curl -s -o /dev/null -w '%{http_code}' http://minio:9000/minio/health/live` — expect `200`; `docker compose ps -a minio-init` must show `Exited (0)` (bucket created)
+- **MinIO (object storage):** `docker compose exec nestjs-api curl -s -o /dev/null -w '%{http_code}' http://minio:9000/minio/health/live` — expect `200`; `docker compose ps -a minio-init` must show `Exited (0)` (bucket created). The `db` service has no volume: after `docker compose down` run `docker compose exec nestjs-api npm run migration:run` again
 - **Video worker:** `docker compose logs video-worker` — expect `Video worker started — consuming "video-processing"` (it waits for `node_modules` on a fresh clone, so run `npm install` first)
 
 Only start the NestJS dev server (`npm run start:dev`) when the user **explicitly** asks to run the application — never as part of "start the environment".
@@ -39,7 +39,7 @@ Services:
 - `db` — PostgreSQL 17, port `5432`, database `streamtube`, user/password `streamtube`
 - `mailpit` — SMTP capture, ports `1025` (SMTP) / `8025` (UI/API)
 - `minio` — S3-compatible object storage (`cgr.dev/chainguard/minio`), ports `9000` (S3 API) / `9001` (console), credentials `S3_ACCESS_KEY` / `S3_SECRET_KEY`
-- `minio-init` — one-shot job that creates the `S3_BUCKET` bucket (exits `0`)
+- `minio-init` — one-shot job (`minio-client:latest-dev`, has a shell) that waits for MinIO (`mc ready`) and creates the `S3_BUCKET` bucket (exits `0`); `nestjs-api` and `video-worker` start only after it completes
 - `redis` — Redis 8 for BullMQ, port `6379` (AOF on, `noeviction`)
 - `video-worker` — video processing worker: same image/code as `nestjs-api`, runs `npm run start:worker:dev` (no HTTP)
 
@@ -189,18 +189,18 @@ Plan and decisions: `docs/phases/phase-03-videos/phase-03-videos.md`, `docs/deci
 
 | Method | Path | Auth | Result |
 |--------|------|------|--------|
-| POST | `/videos` | Bearer | 201 — draft video + presigned part URLs (`file_size` ≤ 10 GiB, `mime_type` `video/*`) |
+| POST | `/videos` | Bearer | 201 — draft video + presigned part URLs, each with its exact `size` signed as `Content-Length` (`file_size` ≤ 10 GiB, `mime_type` `video/*`) |
 | GET | `/videos/:slug/upload` | Bearer (owner) | 200 — uploaded parts + URLs for missing parts (resume) |
-| POST | `/videos/:slug/upload/complete` | Bearer (owner) | 202 — completes multipart, status `processing`, enqueues `process-video` |
+| POST | `/videos/:slug/upload/complete` | Bearer (owner) | 202 — requires every planned part; completes multipart, conditional `draft → processing`, enqueues `process-video` |
 | GET | `/videos/:slug` | Public (optional Bearer) | 200 — `ready` for anyone; other statuses only for the owner (404 otherwise) |
 | GET | `/videos/:slug/stream` | Public (optional Bearer) | 302 → presigned GET of the original (storage answers `Range` with 206) |
 | GET | `/videos/:slug/download` | Public (optional Bearer) | 302 → presigned GET with `Content-Disposition: attachment` |
 
-On `@Public()` routes `JwtAuthGuard` attaches `request.user` when a valid Bearer token is sent and ignores invalid tokens (optional auth). Error codes: `VIDEO_FILE_TOO_LARGE`, `VIDEO_NOT_FOUND`, `VIDEO_NOT_UPLOADABLE`, `INVALID_UPLOAD_PARTS`, `VIDEO_PROCESSING_UNAVAILABLE`, `VIDEO_NOT_READY` (`src/common/exceptions/domain.exception.ts`).
+On `@Public()` routes `JwtAuthGuard` attaches `request.user` when a valid Bearer token is sent and ignores invalid tokens (optional auth). Trade-off: an owner whose access token expired is treated as anonymous (404 on an unfinished video) — clients must refresh proactively; returning 401 would also break public auth routes that receive a stale header. Error codes: `VIDEO_FILE_TOO_LARGE`, `VIDEO_NOT_FOUND`, `VIDEO_NOT_UPLOADABLE`, `INVALID_UPLOAD_PARTS`, `VIDEO_PROCESSING_UNAVAILABLE`, `VIDEO_NOT_READY` (`src/common/exceptions/domain.exception.ts`).
 
-**Lifecycle** — `draft` (upload in progress) → `processing` (upload completed, job queued) → `ready` | `failed` (`failure_reason`: `INVALID_MEDIA` — not a video, no retries; `PROCESSING_ERROR` — 3 attempts exhausted; `UPLOAD_EXPIRED` — draft older than `VIDEO_UPLOAD_WINDOW_HOURS`).
+**Lifecycle** — status changes are conditional UPDATEs (never overwrite a concurrent transition). `draft` (upload in progress) → `processing` (upload completed, job queued) → `ready` | `failed` (`failure_reason`: `INVALID_MEDIA` — not a video, no retries; `PROCESSING_ERROR` — 3 attempts exhausted; `UPLOAD_EXPIRED` — draft older than `VIDEO_UPLOAD_WINDOW_HOURS`).
 
-**Queue jobs** (queue `video-processing`, consumed by `video-worker`): `process-video` `{ videoId }` with `jobId = videoId` (idempotent consumer); `sweep-expired-uploads` via job scheduler every hour (registered when the worker boots).
+**Queue jobs** (queue `video-processing`, consumed by `video-worker`): `process-video` `{ videoId }` with `jobId = videoId` (idempotent consumer); `sweep-expired-uploads` via job scheduler every hour (registered when the worker boots): aborts the multipart first, then expires only rows still in `draft`, deletes assembled originals that were never enqueued, and isolates per-draft failures.
 
 **Storage keys** (single private bucket `S3_BUCKET`): `videos/{id}/original`, `videos/{id}/thumbnail.jpg`. All reads go through short-lived presigned URLs.
 

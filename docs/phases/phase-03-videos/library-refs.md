@@ -71,5 +71,6 @@ _TD: phase-03-videos/TD-02, TD-03, TD-04, TD-06, TD-12_
 _TD: phase-03-videos/TD-02, TD-04, TD-06, TD-09_
 
 - `getSignedUrl(client, command, { expiresIn })` — `expiresIn` in seconds, default **900**. Works for any command (`UploadPartCommand` for direct part uploads, `GetObjectCommand` for stream/download).
+- Passing `ContentLength` to `UploadPartCommand` makes `content-length` a signed header (`X-Amz-SignedHeaders=content-length;host`): the storage rejects (403) a body of any other size — used to bind each part URL to its planned size (verified against MinIO, SI-03.14).
 - The signature covers the **host** of the client's endpoint: sign with a client whose `endpoint` is the host the consumer will call (public endpoint for browsers, internal Compose host for the worker's ffprobe/ffmpeg).
 - Download filename: `GetObjectCommand({ …, ResponseContentDisposition: 'attachment; filename="…"' })` is baked into the signed query string.

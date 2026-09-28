@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** completed
-**SIs:** 13/13 completed
+**SIs:** 16/16 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -101,10 +101,38 @@
   - Root CLAUDE.md: Message Queue = BullMQ on Redis, worker/storage roles; also corrected the stale 'next-frontend not yet initialized' line. software-arch.mermaid: queue no longer TBD; storage relations reflect presigned direct upload.
   - nestjs-controllers rule documents optional auth on @Public() routes introduced in SI-03.6.
 
+### SI-03.14 (amendment of SI-03.2, SI-03.4, SI-03.5) — Integridade do upload: tamanho assinado por parte, lista completa e transições condicionais
+- **Status:** completed
+- **Tests:** storage.service.integration-spec.ts +1 (403 on oversized part), videos.service.spec.ts +7 (part sizes, incomplete/duplicate/out-of-plan lists, NoSuchUpload, conditional transition race), videos.e2e-spec.ts +2 (scenarios 2.4/2.5)
+- **Observations:**
+  - Appended by /plan-build append-mode on 2026-09-28; tracks Revisions of phase-03-videos/TD-02 and TD-11 (2026-09-28) from the post-implementation reanalysis.
+  - Bypass verified empirically before the fix: an unbound part URL accepted 3000 bytes; with ContentLength signed, MinIO returns 403 for any other size.
+  - Code was fixed during the reanalysis and then recorded here (the amendment documents already-shipped changes, per append-mode rules for completed SIs).
+
+### SI-03.15 (amendment of SI-03.8, SI-03.9, SI-03.11) — Robustez do processamento e do sweeper
+- **Status:** completed
+- **Tests:** media-tools.service.integration-spec.ts +1 (cover art), video-processing.service.spec.ts +1 (decode failure), upload-sweeper.service.spec.ts 4 (new), upload-sweeper.service.integration-spec.ts +1 (assembled original deleted)
+- **Observations:**
+  - Appended by /plan-build append-mode on 2026-09-28; tracks Revisions of phase-03-videos/TD-06 and TD-12 (2026-09-28).
+  - Verified against real BullMQ that the `failed` event reports attemptsMade 1..attempts and UnrecoverableError fails at attempt 1 — the processor's final-failure rule needed no change.
+
+### SI-03.16 (amendment of SI-03.1) — Subida a frio do Compose e `.env.example` válido
+- **Status:** completed
+- **Tests:** no tests — verified by `docker compose down` + empty MinIO volume + `docker compose up -d` (minio-init waited, created the bucket, exited 0 before nestjs-api/video-worker started) and `docker compose config` with `.env.example`
+- **Observations:**
+  - Appended by /plan-build append-mode on 2026-09-28; tracks the Revision of phase-03-videos/TD-04.
+  - The `db` service has no volume: recreating the stack empties PostgreSQL (pre-existing); run `npm run migration:run` after `docker compose down`.
+
 ## Final verification — 2026-09-28
 
 - Stack: `docker compose up -d` → `db`, `mailpit`, `minio`, `redis`, `video-worker`, `nestjs-api` running; `minio-init` exited 0.
 - `npm test -- --runInBand`: 37 suites, 229/229 passing.
 - `npm run test:e2e`: 5 suites, 67/67 passing (includes the full pipeline against the `video-worker` container).
 - `npx tsc --noEmit`: exit 0. `npm run lint`: exit 0. `npm run build`: emits `dist/main.js` and `dist/worker.js`; `node dist/worker` starts consuming `video-processing`.
+
+## Final verification (after amendments SI-03.14..16) — 2026-09-28
+
+- Cold start from an empty MinIO volume: `minio-init` waited, created the bucket, exited 0; all services up.
+- `npm test -- --runInBand`: 38 suites, 243/243 passing. `npm run test:e2e`: 5 suites, 69/69 passing.
+- `npx tsc --noEmit`: exit 0. `npm run lint`: exit 0. `openapi.json` regenerated (`UploadPartUrlDto.size`).
 
