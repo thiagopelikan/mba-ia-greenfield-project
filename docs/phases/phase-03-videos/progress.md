@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 6/13 completed
+**SIs:** 7/13 completed
 
 ### SI-03.1 — Infra: dependências, FFmpeg, MinIO/Redis no Compose e configuração
 - **Status:** completed
@@ -49,9 +49,13 @@
   - JwtAuthGuard now verifies an optional Bearer token on @Public() routes (attaches request.user when valid, ignores invalid tokens); protected routes are unchanged.
 
 ### SI-03.7 — Endpoints de vídeos (VideosController, DTOs e OpenAPI)
-- **Status:** pending
-- **Tests:** pending
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 11 new passing (test/videos.e2e-spec.ts: 10 scenarios from nestjs-project/specs/videos.plan.md, openapi-export.integration-spec.ts: +1 → 10); full E2E 62/62
+- **Observations:**
+  - @SkipThrottle() on VideosController: the ThrottlerGuard registered via APP_GUARD in AuthModule is global (10 req/min), but phase-02-auth/TD-08 scopes rate limiting to auth endpoints; uploads/playback/polling must not hit it.
+  - test:e2e now passes --runInBand as nestjs-project/CLAUDE.md already documented; with two DB-cleaning E2E suites the parallel run caused cross-suite contamination.
+  - openapi.json regenerated with the 6 video endpoints. Syncing next-frontend/openapi.json (scripts/sync-openapi.sh) is a frontend concern, out of scope for this backend phase.
+  - Shared test/e2e-helpers.ts (createE2eApp mirroring main.ts + registerConfirmAndLogin).
 
 ### SI-03.8 — Ferramentas de mídia: ffprobe e ffmpeg
 - **Status:** pending
