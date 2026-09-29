@@ -128,4 +128,24 @@ describe('exportSpec (integration)', () => {
       }
     }
   });
+
+  it('documents the video endpoints under the videos tag', () => {
+    const paths = document.paths as Record<
+      string,
+      Record<string, { tags?: string[] }>
+    >;
+    for (const path of [
+      '/videos',
+      '/videos/{slug}',
+      '/videos/{slug}/upload',
+      '/videos/{slug}/upload/complete',
+      '/videos/{slug}/stream',
+      '/videos/{slug}/download',
+    ]) {
+      expect(paths[path]).toBeDefined();
+      for (const operation of Object.values(paths[path])) {
+        expect(operation.tags).toContain('videos');
+      }
+    }
+  });
 });

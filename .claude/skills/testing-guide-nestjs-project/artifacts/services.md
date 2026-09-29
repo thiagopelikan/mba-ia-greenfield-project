@@ -165,6 +165,6 @@ Currently only `AppService` exists (scaffolding — no branching, no DB → skip
 When domain services are created:
 - **AuthService** [branching + configured lib (JWT)] → Unit: test login/register/reset branches with mocked UsersService + real JwtModule. Integration: if it directly queries the DB.
 - **UsersService** [DB access + possible branching] → Unit: test branch logic if any (mock repo). Integration: test DB queries with real PostgreSQL.
-- **VideosService** [DB + storage + queue] → Unit: test status transitions, visibility rules (mock deps). Integration: test DB queries, storage uploads (local adapter), queue publishing.
+- **VideosService** [DB + storage + queue] → Unit: test status transitions, visibility rules (mock deps). Integration: test DB queries, storage uploads (real MinIO), queue publishing (isolated BullMQ prefix).
 - **CommentsService** [DB + branching for nesting] → Unit: test nesting depth validation. Integration: test nested comment queries.
 - **ChannelsService** [DB access] → Integration: test slug uniqueness, ownership queries.

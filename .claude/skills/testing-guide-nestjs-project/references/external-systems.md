@@ -37,89 +37,51 @@ How each external system is handled in tests. These strategies were confirmed wi
 
 ---
 
-## Object Storage — Local Filesystem
+## Object Storage — Real (Docker MinIO)
 
-**Strategy:** Local filesystem storage in development and tests. S3 in production.
-
-**Approach:**
-- The storage layer should use an abstraction (e.g., `StorageService` interface) that allows switching between local filesystem and S3
-- In tests, use the local filesystem adapter — no mocking needed
-- Use a temporary directory for test uploads: `os.tmpdir()` or a dedicated `test-uploads/` directory
-- Clean up test files in `afterAll`
+**Strategy:** Real S3-compatible storage via the Compose `minio` service (bucket created by `minio-init`). S3 in production — same `StorageService`, only the `S3_*` env changes. No filesystem adapter: presigned multipart uploads and HTTP range reads only exist on a real S3 API.
 
 **Setup pattern:**
 ```typescript
-// In test module setup
-{
-  provide: 'STORAGE_CONFIG',
-  useValue: {
-    driver: 'local',
-    basePath: path.join(os.tmpdir(), 'streamtube-test-uploads'),
-  },
-}
-```
-
-**Integration test:**
-```typescript
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-
-describe('StorageService (integration)', () => {
-  const testDir = path.join(os.tmpdir(), 'streamtube-test-uploads');
-
-  afterAll(() => {
-    fs.rmSync(testDir, { recursive: true, force: true });
-  });
-
-  it('should upload and retrieve a file', async () => {
-    const buffer = Buffer.from('test content');
-    const key = await storageService.upload(buffer, 'test.txt');
-
-    const retrieved = await storageService.get(key);
-    expect(retrieved.toString()).toBe('test content');
-  });
+Test.createTestingModule({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, load: [storageConfig] }),
+    StorageModule,
+  ],
 });
 ```
+
+**Presigned URLs from inside the container:** client-facing URLs are signed for `S3_PUBLIC_ENDPOINT` (`http://localhost:9000`), which is unreachable from the `nestjs-api` container. Use `requestPresigned()` from `src/test/storage-http.ts`: it connects to `S3_ENDPOINT` (`minio:9000`) while sending the signed `Host` header — exactly what a browser on the host sends.
+
+```typescript
+const url = await storage.presignUploadPart(key, uploadId, 1, 300);
+const res = await requestPresigned(url, { method: 'PUT', body: bytes });
+expect(res.status).toBe(200); // res.headers.etag feeds CompleteMultipartUpload
+```
+
+**Test isolation:** use unique keys per test (`test/${randomUUID()}/original`, or the video id); abort multipart uploads a test leaves open. Sample videos come from `generateSampleVideo()` (`src/test/sample-video.ts`, FFmpeg `lavfi`).
 
 ---
 
-## Message Queue — Real (Docker)
+## Message Queue — Real (Docker Redis + BullMQ)
 
-**Strategy:** Real message broker in Docker. The specific technology is TBD per the architecture diagram (likely BullMQ with Redis or RabbitMQ).
+**Strategy:** Real BullMQ on the Compose `redis` service. The `video-worker` container consumes the default queue, so tests must decide who consumes:
 
-**When the queue technology is chosen, configure:**
-- A queue broker service in `compose.yaml` (e.g., Redis for BullMQ, RabbitMQ for AMQP)
-- Test isolation: use dedicated test queues or clean queues between tests
-- For publisher tests: assert the job is enqueued with correct data
-- For consumer tests: submit a job and assert the processing outcome
-
-**Setup pattern (BullMQ example):**
+- **Producer / service integration tests** register their own root connection with an isolated prefix so the running worker never steals their jobs, and assert on the queue directly:
 ```typescript
-// In test module
 BullModule.forRoot({
-  connection: {
-    host: process.env.REDIS_HOST ?? 'localhost',
-    port: Number(process.env.REDIS_PORT ?? 6379),
-  },
+  connection: { host: process.env.REDIS_HOST, port: Number(process.env.REDIS_PORT ?? 6379) },
+  prefix: 'bull-test',
 }),
-BullModule.registerQueue({ name: 'video-processing' }),
+// ...
+const queue = moduleRef.get<Queue>(getQueueToken(VIDEO_PROCESSING_QUEUE));
+const job = await queue.getJob(videoId); // jobId = videoId
+await queue.obliterate({ force: true }); // cleanup (beforeEach/afterAll)
 ```
+- **Consumer logic** (processor / processing service) is tested by calling the service method directly (`VideoProcessingService.process(videoId)`) with real DB + MinIO + FFmpeg; the processor's retry/failure mapping is a unit test.
+- **Full pipeline E2E** (`test/video-pipeline.e2e-spec.ts`) uses the default prefix on purpose: the Compose `video-worker` must be running (`docker compose up -d`) and the test polls `GET /videos/:slug` until `ready`/`failed`.
 
-```typescript
-describe('VideoService (integration - queue)', () => {
-  it('should enqueue a processing job on upload', async () => {
-    await videoService.upload(videoData);
-
-    const queue = module.get<Queue>(getQueueToken('video-processing'));
-    const jobs = await queue.getJobs(['waiting']);
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0].data).toEqual(
-      expect.objectContaining({ videoId: expect.any(String) }),
-    );
-  });
-});
-```
+`Test.createTestingModule(...).compile()` does not run `onModuleInit`, so compiling a module that declares a `@Processor()` does not start a consumer.
 
 ---
 

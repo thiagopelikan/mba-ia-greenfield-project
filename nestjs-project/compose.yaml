@@ -12,6 +12,35 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_started
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  # Video worker (FFmpeg): same image and code as the API, separate process
+  # without HTTP that consumes the "video-processing" BullMQ queue. Waits until
+  # dependencies are installed (`docker compose exec nestjs-api npm install`).
+  video-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - .:/home/node/app
+    command:
+      - sh
+      - -c
+      - >-
+        until [ -x node_modules/.bin/ts-node ]; do
+        echo 'video-worker: waiting for npm install...'; sleep 5; done;
+        exec npm run start:worker:dev
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
   db:
     image: postgres:17
@@ -33,4 +62,49 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  # Object storage (S3-compatible). Chainguard build of MinIO — the upstream
+  # minio/minio image is no longer published on Docker Hub.
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY:-streamtube}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:-streamtube-secret}
+    volumes:
+      - minio-data:/data
 
+  # One-shot bucket bootstrap: waits until MinIO answers, then creates the
+  # bucket (the -dev image variant ships a shell).
+  minio-init:
+    image: cgr.dev/chainguard/minio-client:latest-dev
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        until mc ready local; do echo 'minio-init: waiting for minio...'; sleep 1; done;
+        mc mb --ignore-existing local/${S3_BUCKET:-streamtube-videos}
+    environment:
+      - MC_HOST_local=http://${S3_ACCESS_KEY:-streamtube}:${S3_SECRET_KEY:-streamtube-secret}@minio:9000
+    depends_on:
+      minio:
+        condition: service_started
+
+  # Queue broker for BullMQ (jobs must never be evicted).
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  minio-data:
+  redis-data:
